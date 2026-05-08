@@ -182,6 +182,7 @@ class Interpreter:
         self.global_env.set('remove', lambda l, x: l.remove(x))
         self.global_env.set('empty', lambda l: len(l) == 0)
         self.global_env.set('contains', lambda l, x: x in l)
+        self.global_env.set('abs', abs)
         self.current_env = self.global_env
         self.functions: Dict[str, FunctionDef] = {}
         self.classes: Dict[str, ClassDef] = {}
@@ -197,6 +198,7 @@ class Interpreter:
             'str': str, 'int': int, 'float': float, 'bool': bool,
             'list': list, 'len': len,
             'range': lambda *args: list(range(*args)),
+            'abs': abs,
             'typeof': lambda x: type(x).__name__,
             'run': self.builtin_run,
             'read': self.builtin_read,
@@ -567,6 +569,11 @@ class Interpreter:
                 attr = node.right.name
                 if hasattr(left, attr): return getattr(left, attr)
                 if hasattr(left, 'get'): return left.get(attr)
+                
+                if isinstance(left, Instance):
+                    if attr in left.data:
+                        return left.data[attr]
+                
                 raise AttributeError(f"Member '{attr}' not found on {left}")
             elif isinstance(node.right, Call):
                 func = None
@@ -574,9 +581,43 @@ class Interpreter:
                 # Support 'trim' as an alias for 'strip' on strings
                 if isinstance(left, str) and attr == 'trim':
                     attr = 'strip'
-                if hasattr(left, attr): func = getattr(left, attr)
-                elif hasattr(left, 'get'): func = left.get(attr)
-                if not func: raise AttributeError(f"Method '{attr}' not found")
+                if hasattr(left, attr):
+                    func = getattr(left, attr)
+                elif hasattr(left, 'get'):
+                    func = left.get(attr)
+                
+                if not func and isinstance(left, Instance):
+                    method_node = self._find_method(left.class_def, attr)
+                    if method_node:
+                        args = [self.visit(a) for a in node.right.args]
+                        old_env = self.current_env
+                        new_env = Environment(parent=self.global_env)
+                        for k, v in left.data.items():
+                            new_env.set(k, v)
+                        for i, (arg_name, default_node, type_hint) in enumerate(method_node.args):
+                            if i < len(args):
+                                val = args[i]
+                            elif default_node is not None:
+                                val = self.visit(default_node)
+                            else:
+                                raise TypeError(f"Missing arg '{arg_name}' for method '{attr}'")
+                            new_env.set(arg_name, val)
+                        self.current_env = new_env
+                        ret_val = None
+                        try:
+                            for stmt in method_node.body:
+                                self.visit(stmt)
+                        except ReturnException as e:
+                            ret_val = e.value
+                        finally:
+                            for k in left.data.keys():
+                                if k in new_env.variables:
+                                    left.data[k] = new_env.variables[k]
+                            self.current_env = old_env
+                        return ret_val
+
+                if not func:
+                    raise AttributeError(f"Method '{attr}' not found")
                 args = [self.visit(a) for a in node.right.args]
                 kwargs = {}
                 if getattr(node.right, 'kwargs', None):
@@ -756,9 +797,6 @@ class Interpreter:
         value = self.visit(node.value)
         raise ReturnException(value)
     def _call_function_def(self, func_def: FunctionDef, args: List[Node]):
-        """
-        -----Purpose: Internal helper to execute a function definition.
-        """
         if len(args) > len(func_def.args):
              raise TypeError(f"Function '{func_def.name}' expects max {len(func_def.args)} arguments, got {len(args)}")
         old_env = self.current_env
@@ -789,9 +827,6 @@ class Interpreter:
             
         return ret_val
     def visit_Call(self, node: Call):
-        """
-        -----Purpose: Evaluates a function or method call node.
-        """
         kwargs = {}
         if node.kwargs:
             for k, v in node.kwargs:
@@ -821,7 +856,6 @@ class Interpreter:
                     return func(*args, **kwargs)
                 return func(*args)
             curr_obj = func
-            # Refactor long condition for 80-char compliance
             is_valid_type = isinstance(
                 curr_obj, (list, dict, str, Instance)
             )
@@ -846,6 +880,13 @@ class Interpreter:
                 pass
         except NameError:
             pass
+        if node.name in self.classes:
+            from .ast_nodes import Instantiation
+            inst = Instantiation(var_name=None, class_name=node.name, args=node.args, kwargs=node.kwargs)
+            inst.line = node.line
+            inst.col = node.col
+            return self.visit_Instantiation(inst)
+
         if node.name not in self.functions:
             msg = (
                 f"Function '{node.name}' not defined "
@@ -1365,7 +1406,7 @@ class Interpreter:
             val = self.visit(val_node)
             result[key] = val
         return result
-    def _builtin_split(self, s, delimiter=" "):
+    def _builtin_split(self, s, delimiter=None):
         if delimiter == "":
             return list(s)
         return s.split(delimiter)
