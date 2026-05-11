@@ -181,7 +181,7 @@ class GeometricBindingParser:
             'UNTIL': self.bind_until, 'ON': self.bind_on,
             'FUNCTION': self.bind_func, 'TO': self.bind_func,
             'PRINT': self.bind_print, 'SAY': self.bind_print,
-            'MAKE': self.bind_assignment,
+            'MAKE': self.bind_assignment, 'CONST': self.bind_const,
             'RETURN': self.bind_return,
             'ALERT': self.bind_alert, 'PROMPT': self.bind_prompt,
             'CONFIRM': self.bind_confirm, 'EXECUTE': self.bind_execute,
@@ -244,7 +244,7 @@ class GeometricBindingParser:
                 
         if head_type in (
             'ID', 'COUNT', 'MAX', 'MIN', 'LERP', 'CLAMPED',
-            'BUTTON', 'HEADING', 'PARAGRAPH', 'IMAGE', 'START', 'SERVER'
+            'BUTTON', 'HEADING', 'PARAGRAPH', 'IMAGE', 'START', 'SERVER', 'INPUT'
         ):
             val = node.head_token.value.lower()
             if val == 'a' and len(node.tokens) > 1:
@@ -260,7 +260,7 @@ class GeometricBindingParser:
             # Check for regular assignment (x = 1) or index assignment (x[0] = 1)
             assign_idx = -1
             for k, tok in enumerate(node.tokens):
-                if tok.type in ('ASSIGN', 'IS'):
+                if tok.type in ('ASSIGN', 'IS', 'PLUSEQ', 'MINUSEQ', 'MULEQ', 'DIVEQ', 'MODEQ'):
                     assign_idx = k
                     break
             
@@ -472,9 +472,24 @@ class GeometricBindingParser:
         """
         -----Purpose: Binds a PRINT block GeoNode to an AST Print node.
         """
-        expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
+        tokens = node.tokens[1:]
+        style = None
+        color = None
+        i = 0
+        if i < len(tokens) and tokens[i].type == 'IN':
+            if i + 1 < len(tokens) and tokens[i + 1].type in ('RED', 'GREEN', 'BLUE', 'YELLOW', 'CYAN', 'MAGENTA'):
+                color = tokens[i + 1].value
+                i += 2
+        if i < len(tokens) and tokens[i].type == 'BOLD':
+            style = 'bold'
+            i += 1
+        if i < len(tokens) and tokens[i].type in ('RED', 'GREEN', 'BLUE', 'YELLOW', 'CYAN', 'MAGENTA'):
+            color = tokens[i].value
+            i += 1
+            
+        expr_tokens = self._extract_expr_tokens(tokens, start=i)
         expr = self.parse_expr_iterative(expr_tokens)
-        return Print(expr)
+        return Print(expr, style=style, color=color)
     def bind_return(self, node: GeoNode) -> Return:
         """
         -----Purpose: Binds a RETURN block GeoNode to an AST Return node.
@@ -492,7 +507,7 @@ class GeometricBindingParser:
         tokens = node.tokens
         assign_idx = -1
         for i, t in enumerate(tokens):
-            if t.type in ('ASSIGN', 'IS', 'BE'):
+            if t.type in ('ASSIGN', 'IS', 'BE', 'PLUSEQ', 'MINUSEQ', 'MULEQ', 'DIVEQ', 'MODEQ'):
                 assign_idx = i
                 break
         
@@ -513,9 +528,49 @@ class GeometricBindingParser:
             for child in node.children:
                 expr_tokens.extend(child.tokens)
         value = self.parse_expr_iterative(expr_tokens, node.children)
+        
+        op_tok = tokens[assign_idx]
+        if op_tok.type in ('PLUSEQ', 'MINUSEQ', 'MULEQ', 'DIVEQ', 'MODEQ'):
+            op_map = {
+                'PLUSEQ': '+',
+                'MINUSEQ': '-',
+                'MULEQ': '*',
+                'DIVEQ': '/',
+                'MODEQ': '%'
+            }
+            op_str = op_map[op_tok.type]
+            left_node = VarAccess(name)
+            left_node.line = node.head_token.line
+            left_node.col = node.head_token.column
+            value = BinOp(left_node, op_str, value)
+            value.line = op_tok.line
+            value.col = op_tok.column
+
         if type_hint:
             return TypedAssign(name, type_hint, value)
         return Assign(name, value)
+        
+    def bind_const(self, node: GeoNode) -> ConstAssign:
+        """
+        -----Purpose: Binds a CONST statement GeoNode to an AST ConstAssign node.
+        """
+        tokens = node.tokens
+        if len(tokens) < 4:
+            raise SyntaxError("Invalid constant assignment syntax")
+            
+        name = tokens[1].value
+        assign_idx = -1
+        for i in range(2, len(tokens)):
+            if tokens[i].type in ('ASSIGN', 'IS', 'BE'):
+                assign_idx = i
+                break
+                
+        if assign_idx == -1:
+            raise SyntaxError("Assignment operator missing in constant assignment")
+            
+        expr_tokens = tokens[assign_idx + 1:]
+        value = self.parse_expr_iterative(expr_tokens)
+        return ConstAssign(name, value)
         
     def bind_index_assignment(self, node: GeoNode, assign_idx: int) -> Any:
         """
@@ -527,6 +582,20 @@ class GeometricBindingParser:
         lhs_expr = self.parse_expr_iterative(lhs_tokens)
         value_expr = self.parse_expr_iterative(value_tokens)
         
+        op_tok = node.tokens[assign_idx]
+        if op_tok.type in ('PLUSEQ', 'MINUSEQ', 'MULEQ', 'DIVEQ', 'MODEQ'):
+            op_map = {
+                'PLUSEQ': '+',
+                'MINUSEQ': '-',
+                'MULEQ': '*',
+                'DIVEQ': '/',
+                'MODEQ': '%'
+            }
+            op_str = op_map[op_tok.type]
+            value_expr = BinOp(lhs_expr, op_str, value_expr)
+            value_expr.line = op_tok.line
+            value_expr.col = op_tok.column
+            
         if type(lhs_expr).__name__ == "IndexAccess":
             return IndexAssign(lhs_expr.obj, lhs_expr.index, value_expr)
         
@@ -1189,7 +1258,7 @@ class GeometricBindingParser:
         """
         tokens = node.tokens
         if len(tokens) >= 1 and tokens[0].type in (
-            'ID', 'BUTTON', 'HEADING', 'PARAGRAPH', 'IMAGE', 'START', 'SERVER'
+            'ID', 'BUTTON', 'HEADING', 'PARAGRAPH', 'IMAGE', 'START', 'SERVER', 'INPUT'
         ):
             name = tokens[0].value
             args = []
@@ -1309,9 +1378,61 @@ class GeometricBindingParser:
         i = 0
         while i < len(tokens):
             t = tokens[i]
-            # Unary minus: if MINUS appears at the start
-            # or after an operator / open-paren / comma,
-            # treat it as negation: 0 - <next value>.
+            if t.type == 'ID' and t.value.lower() == 'a' and i + 1 < len(tokens) and tokens[i + 1].type == 'LIST':
+                if i + 2 < len(tokens) and tokens[i + 2].type == 'OF':
+                    j = i + 3
+                    elements_tokens = []
+                    current_elem = []
+                    while j < len(tokens):
+                        if tokens[j].type == 'COMMA':
+                            if current_elem:
+                                elements_tokens.append(current_elem)
+                                current_elem = []
+                        else:
+                            current_elem.append(tokens[j])
+                        j += 1
+                    if current_elem:
+                        elements_tokens.append(current_elem)
+                    
+                    items = [
+                        self.parse_expr_iterative(elem)
+                        for elem in elements_tokens if elem
+                    ]
+                    values.append(ListVal(items))
+                    i = j
+                    continue
+                else:
+                    values.append(ListVal([]))
+                    i += 2
+                    continue
+
+            if t.type == 'ID' and t.value.lower() == 'a' and i + 2 < len(tokens) and tokens[i + 1].type == 'UNIQUE' and tokens[i + 2].type == 'SET':
+                if i + 3 < len(tokens) and tokens[i + 3].type == 'OF':
+                    j = i + 4
+                    elements_tokens = []
+                    current_elem = []
+                    while j < len(tokens):
+                        if tokens[j].type == 'COMMA':
+                            if current_elem:
+                                elements_tokens.append(current_elem)
+                                current_elem = []
+                        else:
+                            current_elem.append(tokens[j])
+                        j += 1
+                    if current_elem:
+                        elements_tokens.append(current_elem)
+                    
+                    items = [
+                        self.parse_expr_iterative(elem)
+                        for elem in elements_tokens if elem
+                    ]
+                    values.append(Call('set', [ListVal(items)]))
+                    i = j
+                    continue
+                else:
+                    values.append(Call('set', [ListVal([])]))
+                    i += 3
+                    continue
             if t.type == 'MINUS':
                 is_unary = (
                     i == 0 or
