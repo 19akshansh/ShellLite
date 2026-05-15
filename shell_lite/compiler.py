@@ -545,6 +545,22 @@ class Compiler:
         base = os.path.basename(node.path).replace('.shl', '')
         base = base.replace('.py', '')
         return f"import {base} as {node.alias}"
+
+    def visit_FromImport(self, node: FromImport):
+        if not node.names:
+            return f"from {node.module_name} import *"
+        imports = []
+        for name, alias in node.names:
+            if alias:
+                imports.append(f"{name} as {alias}")
+            else:
+                imports.append(name)
+        return f"from {node.module_name} import {', '.join(imports)}"
+
+    def visit_PythonImport(self, node: PythonImport):
+        if node.alias:
+            return f"import {node.module_name} as {node.alias}"
+        return f"import {node.module_name}"
     def visit_Try(self, node: Try):
         code = "try:\n"
         self.indentation += 1

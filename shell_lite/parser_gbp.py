@@ -915,7 +915,31 @@ class GeometricBindingParser:
         """
         tokens = node.tokens
         module = tokens[1].value
-        return FromImport(module, [])
+        names = []
+        import_idx = -1
+        for i, t in enumerate(tokens):
+            if t.type == 'IMPORT':
+                import_idx = i
+                break
+        
+        if import_idx != -1:
+            name_tokens = tokens[import_idx + 1:]
+            i = 0
+            while i < len(name_tokens):
+                t = name_tokens[i]
+                if t.type == 'ID':
+                    name = t.value
+                    alias = None
+                    if i + 2 < len(name_tokens) and name_tokens[i+1].type == 'AS' and name_tokens[i+2].type == 'ID':
+                        alias = name_tokens[i+2].value
+                        i += 3
+                    else:
+                        i += 1
+                    names.append((name, alias))
+                else:
+                    i += 1
+                    
+        return FromImport(module, names)
     def bind_natural_list(self, node: GeoNode) -> ListVal:
         """
         -----Purpose: Binds a natural language list ('a list of...') GeoNode.
