@@ -303,7 +303,7 @@ graph TB
     end
 ```
 
-### The Bridge - Python Integration
+### Python Integration
 
 Import and use any Python library directly:
 
@@ -315,7 +315,7 @@ data = pd.read_csv("data.csv")
 response = requests.get("https://api.example.com")
 ```
 
-### The Canvas - GUI Applications
+### GUI Applications
 
 Build native desktop applications:
 
@@ -330,7 +330,7 @@ to handle_click
     alert "Button clicked!"
 ```
 
-### The Universe - Package Management
+### Package Management
 
 ```bash
 # Initialize project
