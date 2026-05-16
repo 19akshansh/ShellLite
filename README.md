@@ -7,7 +7,7 @@
 ShellLite is a programming language designed to prioritize human readability. It replaces complex syntax with natural English commands, making software development accessible and maintainable. With version 0.6.0, ShellLite now supports native compilation via LLVM alongside its interpreted mode.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3--with--classpath--exception-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-0.6.0.1-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.6.0.6-green.svg)]()
 
 ---
 
@@ -303,7 +303,7 @@ graph TB
     end
 ```
 
-### The Bridge - Python Integration
+### Python Integration
 
 Import and use any Python library directly:
 
@@ -315,7 +315,7 @@ data = pd.read_csv("data.csv")
 response = requests.get("https://api.example.com")
 ```
 
-### The Canvas - GUI Applications
+### GUI Applications
 
 Build native desktop applications:
 
@@ -330,7 +330,7 @@ to handle_click
     alert "Button clicked!"
 ```
 
-### The Universe - Package Management
+### Package Management
 
 ```bash
 # Initialize project
