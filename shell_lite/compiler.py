@@ -270,7 +270,7 @@ class Compiler:
         code += self.compile_block(node.body)
         self.indentation -= 1
         if node.else_body:
-            code += f"\nelse:\n"
+            code += "\nelse:\n"
             self.indentation += 1
             code += self.compile_block(node.else_body)
             self.indentation -= 1
@@ -320,7 +320,7 @@ class Compiler:
             
         if node.default_case:
             if not node.cases:
-                code += f"if True:\n"
+                code += "if True:\n"
             else:
                 code += f"\n{self.indent()}else:\n"
             self.indentation += 1
@@ -619,7 +619,7 @@ class Compiler:
             self.indentation += 1
             code += self.compile_block(node.catch_body)
             self.indentation -= 1
-        code += f"\nfinally:\n"
+        code += "\nfinally:\n"
         self.indentation += 1
         code += self.compile_block(node.always_body)
         self.indentation -= 1

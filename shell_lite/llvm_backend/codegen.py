@@ -1,4 +1,3 @@
-import sys as _sys
 
 from llvmlite import ir
 
@@ -741,16 +740,16 @@ class LLVMCompiler:
             if len(node.args) >= 2:
                  val = self.visit(node.args[0])
                  obj = self.visit(node.args[1])
-                 print(f"Info: Mapping 'add' to list operation")
+                 print("Info: Mapping 'add' to list operation")
                  return ir.Constant(self.int32, 0)
         
         # Stub built-ins for chess engine
         if node.name in ('order_moves', 'pop', 'randint', 'json_parse', 'json_stringify', 'read', 'write', 'exists', 'contains', 'empty', 'clear_dict', 'split', 'ord', 'abs', 'time', 'float'):
             if node.name == 'order_moves':
-                 print(f"Info: Stubbing 'order_moves' call")
+                 print("Info: Stubbing 'order_moves' call")
                  return self.visit(node.args[0])
             if node.name == 'pop':
-                 print(f"Info: Stubbing 'pop' call")
+                 print("Info: Stubbing 'pop' call")
                  return ir.Constant(self.int32, 0)
             if node.name == 'randint':
                  return ir.Constant(self.int32, 42)
