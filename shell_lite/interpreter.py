@@ -1844,48 +1844,6 @@ class Interpreter:
                 self.db_conn.close()
                 self.db_conn = None
             return True
-
-    def visit_ModelDef(self, node: ModelDef):
-        self.classes[node.name] = node
-        return None
-
-    def visit_CreateTable(self, node: CreateTable):
-        if not self.db_conn: raise RuntimeError("Database not open")
-        model = self.classes.get(node.model_name)
-        if not model: raise NameError(f"Model '{node.model_name}' not defined")
-        fields = []
-        for f_name, f_type in model.fields:
-            sql_type = "TEXT"
-            if f_type == "int": sql_type = "INTEGER"
-            elif f_type == "float": sql_type = "REAL"
-            fields.append(f"{f_name} {sql_type}")
-        sql = f"CREATE TABLE IF NOT EXISTS {node.model_name} ({', '.join(fields)})"
-        self.db_conn.execute(sql)
-        self.db_conn.commit()
-        return True
-
-    def visit_InsertRecord(self, node: InsertRecord):
-        if not self.db_conn: raise RuntimeError("Database not open")
-        placeholders = ", ".join(["?"] * len(node.values))
-        cols = ", ".join([v[0] for v in node.values])
-        vals = [self.visit(v[1]) for v in node.values]
-        sql = f"INSERT INTO {node.model_name} ({cols}) VALUES ({placeholders})"
-        cursor = self.db_conn.cursor()
-        cursor.execute(sql, vals)
-        self.db_conn.commit()
-        return cursor.lastrowid
-
-    def visit_FindRecords(self, node: FindRecords):
-        if not self.db_conn: raise RuntimeError("Database not open")
-        base = "SELECT COUNT(*)" if node.is_count else "SELECT *"
-        sql = f"{base} FROM {node.model_name}"
-        params = []
-        if node.conditions:
-            conds = []
-            for col, op, val in node.conditions:
-                conds.append(f"{col} {op} ?")
-                params.append(self.visit(val))
-            sql += " WHERE " + " AND ".join(conds)
         
         cursor = self.db_conn.cursor()
         cursor.execute(sql, params)
