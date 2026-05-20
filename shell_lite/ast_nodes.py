@@ -23,12 +23,7 @@ class String(Node):
     -----Purpose: Represents a string literal.
     """
     value: str
-@dataclass
-class Regex(Node):
-    """
-    -----Purpose: Represents a regular expression literal.
-    """
-    pattern: str
+
 @dataclass
 class VarAccess(Node):
     """
@@ -115,24 +110,14 @@ class Dictionary(Node):
     -----Purpose: Represents a dictionary/map literal.
     """
     pairs: List[tuple[Node, Node]]
-@dataclass
-class SetVal(Node):
-    """
-    -----Purpose: Represents a set literal.
-    """
-    elements: List[Node]
+
 @dataclass
 class Boolean(Node):
     """
     -----Purpose: Represents a boolean literal (yes/no).
     """
     value: bool
-@dataclass
-class Input(Node):
-    """
-    -----Purpose: Represents a user input request.
-    """
-    prompt: Optional[str] = None
+
 @dataclass
 class FunctionDef(Node):
     """
@@ -213,21 +198,8 @@ class Match(Node):
     match_expr: Node
     cases: List[tuple[Node, List[Node]]]
     default_case: Optional[List[Node]] = None
-@dataclass
-class Lambda(Node):
-    """
-    -----Purpose: Represents an anonymous function.
-    """
-    params: List[str]
-    body: Node
-@dataclass
-class Ternary(Node):
-    """
-    -----Purpose: Represents a ternary conditional expression.
-    """
-    condition: Node
-    true_expr: Node
-    false_expr: Node
+
+
 @dataclass
 class ListComprehension(Node):
     """
@@ -237,12 +209,7 @@ class ListComprehension(Node):
     var_name: str
     iterable: Node
     condition: Optional[Node] = None
-@dataclass
-class Spread(Node):
-    """
-    -----Purpose: Represents the spread operator (...) for lists.
-    """
-    value: Node
+
 @dataclass
 class ConstAssign(Node):
     """
@@ -285,14 +252,7 @@ class Skip(Node):
     -----Purpose: Represents a 'skip' (continue) statement.
     """
     pass
-@dataclass
-class When(Node):
-    """
-    -----Purpose: Represents a 'when' (switch/match) branch statement.
-    """
-    value: Node
-    cases: List[tuple[Node, List[Node]]]
-    otherwise: Optional[List[Node]] = None
+
 @dataclass
 class Throw(Node):
     """
@@ -355,20 +315,8 @@ class Exit(Node):
     -----Purpose: Represents an 'exit' statement.
     """
     code: Optional[Node] = None
-@dataclass
-class Make(Node):
-    """
-    -----Purpose: Represents a 'make' (instantiation) expression.
-    """
-    class_name: str
-    args: List[Node]
-@dataclass
-class FileWatcher(Node):
-    """
-    -----Purpose: Represents a file system watcher block.
-    """
-    path: Node
-    body: List[Node]
+
+
 @dataclass
 class Alert(Node):
     """
@@ -399,12 +347,7 @@ class Await(Node):
     -----Purpose: Represents an 'await' statement for async tasks.
     """
     task: Node
-@dataclass
-class ProgressLoop(Node):
-    """
-    -----Purpose: Represents a decorated loop with a progress bar.
-    """
-    loop_node: Node
+
 @dataclass
 class Convert(Node):
     """
@@ -484,12 +427,7 @@ class AutomationOp(Node):
     """
     action: str
     args: List[Node]
-@dataclass
-class DateOp(Node):
-    """
-    -----Purpose: Represents a date formatting or retrieval operation.
-    """
-    expr: str
+
 @dataclass
 class FileWrite(Node):
     """

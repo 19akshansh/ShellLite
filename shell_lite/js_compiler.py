@@ -1,3 +1,10 @@
+"""
+Experimental JavaScript transpiler for ShellLite.
+
+Covers core constructs (functions, control flow, objects, try/catch) and maps
+concurrency primitives to their closest JS equivalents. Channel/Send/Receive
+use a simplified single-threaded array model since JS is inherently single-threaded.
+"""
 from .ast_nodes import *
 
 
@@ -113,12 +120,15 @@ class JSCompiler:
         return body
 
     def visit_Channel(self, node):
+        # JS is single-threaded; channels are modeled as simple arrays.
         return "[]"
 
     def visit_Send(self, node):
+        # Append to the channel array.
         return f"{self.visit(node.channel)}.push({self.visit(node.value)})"
 
     def visit_Receive(self, node):
+        # Pop from the front of the channel array.
         return f"{self.visit(node.channel)}.shift()"
 
     def visit_Get(self, node):

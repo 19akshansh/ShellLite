@@ -1,3 +1,10 @@
+"""
+Experimental C transpiler for ShellLite.
+
+This backend supports a minimal subset of the language (arithmetic, variables,
+if/else, while loops, and print). AST nodes outside this subset are emitted as
+C comments. It exists primarily to feed the WASM builder pipeline via Emscripten.
+"""
 from .ast_nodes import *
 
 
@@ -22,8 +29,8 @@ class CCompiler:
             "#include <stdbool.h>\n"
             "#include <string.h>\n\n"
             "// --- ShellLite Runtime Helpers ---\n"
-            "void slang_print_num(double n) { printf(\"%g\\n\", n); }\n"
-            "void slang_print_str(const char* s) { printf(\"%s\\n\", s); }\n\n"
+            "void shl_print_num(double n) { printf(\"%g\\n\", n); }\n"
+            "void shl_print_str(const char* s) { printf(\"%s\\n\", s); }\n\n"
         )    
         main_func = (
             "int main(int argc, char** argv) {\n"
@@ -38,7 +45,8 @@ class CCompiler:
         return self.indent() + visitor(node)
 
     def generic_visit(self, node):
-        return f"// Unsupported: {type(node).__name__}"
+        # Nodes outside the supported subset are emitted as comments.
+        return f"// Not implemented: {type(node).__name__}"
 
     def visit_Number(self, node):
         return str(node.value)
@@ -61,7 +69,7 @@ class CCompiler:
 
     def visit_Print(self, node):
         expr = self.visit_expr(node.expression)
-        return f"slang_print_num({expr});"
+        return f"shl_print_num({expr});"
 
     def visit_If(self, node):
         cond = self.visit_expr(node.condition)

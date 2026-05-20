@@ -12,7 +12,6 @@ from .ast_nodes import (
     Download,
     Execute,
     FileRead,
-    FileWatcher,
     FileWrite,
     FindRecords,
     FromImport,
@@ -38,7 +37,7 @@ def ensure_safe(statements):
 
     unsafe_types = (
         DatabaseOp, Download, ArchiveOp, CsvOp, ClipboardOp, AutomationOp,
-        FileRead, FileWrite, Execute, FileWatcher, Spawn, Await,
+        FileRead, FileWrite, Execute, Spawn, Await,
         ModelDef, CreateTable, InsertRecord, UpdateRecords, DeleteRecords, FindRecords,
         Listen, OnRequest, ServeStatic
     )

@@ -112,7 +112,7 @@ class WebBuilder:
     def add_text(self, text: str):
         if self.stack:
             self.stack[-1].add(text)
-def slang_run(cmd):
+def shl_run(cmd):
     """
     -----Purpose: Executes a system command and returns the trimmed stdout.
     """
@@ -123,38 +123,38 @@ def slang_run(cmd):
         return res.stdout.strip()
     except Exception as e:
         raise RuntimeError(f"Failed to run command: {e}")
-def slang_read(path):
+def shl_read(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
         raise RuntimeError(f"Failed to read file '{path}': {e}")
-def slang_write(path, content):
+def shl_write(path, content):
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(str(content))
         return True
     except Exception as e:
         raise RuntimeError(f"Failed to write file '{path}': {e}")
-def slang_json_parse(json_str):
+def shl_json_parse(json_str):
     try:
         return json.loads(json_str)
     except Exception as e:
         raise RuntimeError(f"Invalid JSON: {e}")
-def slang_json_stringify(obj):
+def shl_json_stringify(obj):
     try:
         if isinstance(obj, Instance):
             return json.dumps(obj.data)
         return json.dumps(obj)
     except Exception as e:
         raise RuntimeError(f"JSON stringify failed: {e}")
-def slang_http_get(url):
+def shl_http_get(url):
     try:
         with urllib.request.urlopen(url) as response:
             return response.read().decode('utf-8')
     except Exception as e:
         raise RuntimeError(f"HTTP GET failed for '{url}': {e}")
-def slang_http_post(url, data_dict):
+def shl_http_post(url, data_dict):
     """
     -----Purpose: Performs a synchronous HTTP POST request with a JSON body.
     """
@@ -169,7 +169,7 @@ def slang_http_post(url, data_dict):
     except Exception as e:
         msg = f"HTTP POST failed for '{url}': {e}"
         raise RuntimeError(msg)
-def slang_download(url):
+def shl_download(url):
     filename = url.split('/')[-1] or "downloaded_file"
     try:
         with urllib.request.urlopen(url) as response:
@@ -178,7 +178,7 @@ def slang_download(url):
         return filename
     except Exception as e:
         raise RuntimeError(f"Download failed: {e}")
-def slang_archive(op, source, target):
+def shl_archive(op, source, target):
     """
     -----Purpose: Compresses or extracts ZIP archives.
     """
@@ -196,12 +196,12 @@ def slang_archive(op, source, target):
                 zipf.extractall(target)
     except Exception as e:
         raise RuntimeError(f"Archive operation failed: {e}")
-def slang_csv_load(path):
+def shl_csv_load(path):
     import csv
     with open(path, 'r', newline='') as f:
         reader = csv.DictReader(f)
         return [row for row in reader]
-def slang_csv_save(data, path):
+def shl_csv_save(data, path):
     """
     -----Purpose: Saves a list of dictionaries or Instances to a CSV file.
     """
@@ -222,40 +222,40 @@ def slang_csv_save(data, path):
             writer = csv.DictWriter(f, fieldnames=keys)
             writer.writeheader()
             writer.writerows(rows)
-def slang_clipboard_copy(text):
+def shl_clipboard_copy(text):
     try:
         import pyperclip
         pyperclip.copy(str(text))
     except ImportError:
         pass
-def slang_clipboard_paste():
+def shl_clipboard_paste():
     try:
         import pyperclip
         return pyperclip.paste()
     except ImportError:
         return ""
-def slang_press(key):
+def shl_press(key):
     try:
         import keyboard
         keyboard.press_and_release(key)
     except ImportError: pass
-def slang_type(text):
+def shl_type(text):
     try:
         import keyboard
         keyboard.write(str(text))
     except ImportError: pass
-def slang_click(x, y):
+def shl_click(x, y):
     try:
         import mouse
         mouse.move(x, y, absolute=True, duration=0.2)
         mouse.click('left')
     except ImportError: pass
-def slang_notify(title, msg):
+def shl_notify(title, msg):
     try:
         from plyer import notification
         notification.notify(title=str(title), message=str(msg))
     except ImportError: pass
-def slang_date_parse(expr):
+def shl_date_parse(expr):
     from datetime import datetime, timedelta
     today = datetime.now()
     if expr == 'today': return today.strftime("%Y-%m-%d")
@@ -272,66 +272,66 @@ def slang_date_parse(expr):
             if days_ahead <= 0: days_ahead += 7
             return (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
     return s
-def slang_file_write(path, content, mode):
+def shl_file_write(path, content, mode):
     with open(path, mode, encoding='utf-8') as f:
         f.write(str(content))
-def slang_file_read(path):
+def shl_file_read(path):
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 import sqlite3
 
-_slang_db_conn = None
-def slang_db_open(path):
+_shl_db_conn = None
+def shl_db_open(path):
     """
     -----Purpose: Opens a connection to a SQLite database with dict support.
     """
-    global _slang_db_conn
-    _slang_db_conn = sqlite3.connect(path, check_same_thread=False)
+    global _shl_db_conn
+    _shl_db_conn = sqlite3.connect(path, check_same_thread=False)
     def dict_factory(cursor, row):
         return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
-    _slang_db_conn.row_factory = dict_factory
+    _shl_db_conn.row_factory = dict_factory
     return True
 
-def slang_db_close():
+def shl_db_close():
     """
     -----Purpose: Closes the global database connection.
     """
-    global _slang_db_conn
-    if _slang_db_conn:
-        _slang_db_conn.close()
-        _slang_db_conn = None
-def slang_db_exec(sql, params=None):
+    global _shl_db_conn
+    if _shl_db_conn:
+        _shl_db_conn.close()
+        _shl_db_conn = None
+def shl_db_exec(sql, params=None):
     """
     -----Purpose: Executes a non-query SQL statement and returns the last row ID.
     """
-    if not _slang_db_conn:
+    if not _shl_db_conn:
         raise RuntimeError("DB not open")
     if params is None:
         params = []
-    c = _slang_db_conn.cursor()
+    c = _shl_db_conn.cursor()
     c.execute(sql, params)
-    _slang_db_conn.commit()
+    _shl_db_conn.commit()
     return c.lastrowid
 
-def slang_db_query(sql, params=None):
+def shl_db_query(sql, params=None):
     """
     -----Purpose: Executes a SQL query and returns all rows as a list of dicts.
     """
-    if not _slang_db_conn:
+    if not _shl_db_conn:
         raise RuntimeError("DB not open")
     if params is None:
         params = []
-    c = _slang_db_conn.cursor()
+    c = _shl_db_conn.cursor()
     c.execute(sql, params)
     return c.fetchall()
-def slang_json_stringify(val):
+def shl_json_stringify(val):
     if isinstance(val, (Instance, dict)):
         d = val.data if isinstance(val, Instance) else val
         return json.dumps(d)
     if isinstance(val, list):
          return json.dumps([v.data if isinstance(v, Instance) else v for v in val])
     return json.dumps(val)
-def slang_color_print(val, color=None, style=None):
+def shl_color_print(val, color=None, style=None):
     """
     -----Purpose: Prints text to the console with ANSI color codes.
     """
@@ -348,7 +348,7 @@ def slang_color_print(val, color=None, style=None):
         print(f"\033[{';'.join(parts)}m{val}\033[0m")
     else:
         print(val)
-def slang_alert(msg):
+def shl_alert(msg):
     if _HAS_TK:
         root = tk.Tk()
         root.withdraw()
@@ -357,7 +357,7 @@ def slang_alert(msg):
         root.destroy()
     else:
         print(f"[Alert] {msg}")
-def slang_prompt(prompt):
+def shl_prompt(prompt):
     if _HAS_TK:
         root = tk.Tk()
         root.withdraw()
@@ -367,7 +367,7 @@ def slang_prompt(prompt):
         return val if val is not None else ""
     else:
         return input(str(prompt) + " ")
-def slang_confirm(prompt):
+def shl_confirm(prompt):
     if _HAS_TK:
         root = tk.Tk()
         root.withdraw()
@@ -401,8 +401,8 @@ def get_std_modules():
             'second': lambda: datetime.now().second,
         },
         'http': {
-            'get': slang_http_get,
-            'post': slang_http_post
+            'get': shl_http_get,
+            'post': shl_http_post
         },
         'env': {
             'get': lambda k, d=None: os.environ.get(k, d),
@@ -433,21 +433,21 @@ def get_std_modules():
             'split': lambda p, s: re.split(p, s),
         },
     }
-def slang_map(lst, func):
+def shl_map(lst, func):
     """
     -----Purpose: Applies a function to every item in a list.
     """
     if callable(func):
         return [func(x) for x in lst]
     raise TypeError("map requires a callable")
-def slang_filter(lst, func):
+def shl_filter(lst, func):
     """
     -----Purpose: Filters a list based on a predicate function.
     """
     if callable(func):
         return [x for x in lst if func(x)]
     raise TypeError("filter requires a callable")
-def slang_reduce(lst, func, initial=None):
+def shl_reduce(lst, func, initial=None):
     """
     -----Purpose: Reduces a list to a single value using an accumulator.
     """
@@ -456,7 +456,7 @@ def slang_reduce(lst, func, initial=None):
             return functools.reduce(func, lst, initial)
         return functools.reduce(func, lst)
     raise TypeError("reduce requires a callable")
-def slang_add(target, val):
+def shl_add(target, val):
     if isinstance(target, list):
         target.append(val)
         return target
@@ -464,13 +464,13 @@ def slang_add(target, val):
         return target + val
     else:
         raise TypeError(f"Cannot add to {type(target).__name__}")
-def slang_push(lst, item):
+def shl_push(lst, item):
     """
     -----Purpose: Appends an item to a list and returns None.
     """
     lst.append(item)
     return None
-def slang_order_moves(moves, hash_move, ply):
+def shl_order_moves(moves, hash_move, ply):
     import sys
     caller_globals = sys._getframe(1).f_globals
     killer_table = caller_globals.get('killer_table', {})
@@ -518,11 +518,11 @@ def get_builtins():
     -----        to their Python equivalents.
     """
     return {
-        'add': slang_add,
+        'add': shl_add,
         'xor': lambda a, b: a ^ b,
         'ask': input,
         'clear_dict': lambda d: d.clear(),
-        'order_moves': slang_order_moves,
+        'order_moves': shl_order_moves,
         'null': None,
         'none': None,
         'yes': True,
@@ -531,11 +531,11 @@ def get_builtins():
         'list': list, 'len': len,
         'range': lambda *args: list(range(*args)),
         'typeof': lambda x: type(x).__name__,
-        'run': slang_run,
-        'read': slang_read,
-        'write': slang_write,
-        'json_parse': slang_json_parse,
-        'json_stringify': slang_json_stringify,
+        'run': shl_run,
+        'read': shl_read,
+        'write': shl_write,
+        'json_parse': shl_json_parse,
+        'json_stringify': shl_json_stringify,
         'print': print,
         'abs': abs, 'min': min, 'max': max,
         'round': round, 'pow': pow, 'sum': sum,
@@ -550,7 +550,7 @@ def get_builtins():
         'find': lambda s, sub: s.find(sub),
         'char': chr, 'ord': ord,
         'append': lambda l, x: (l.append(x), l)[1],
-        'push': slang_push,
+        'push': shl_push,
         'count': len,
         'remove': lambda l, x: l.remove(x),
         'pop': lambda l, idx=-1: l.pop(idx),
@@ -561,17 +561,17 @@ def get_builtins():
         'slice': lambda l, start, end=None: l[start:end],
         'contains': lambda l, x: x in l,
         'index': lambda l, x: l.index(x) if x in l else -1,
-        'map': slang_map,
-        'filter': slang_filter,
-        'reduce': slang_reduce,
+        'map': shl_map,
+        'filter': shl_filter,
+        'reduce': shl_reduce,
         'exists': os.path.exists,
         'delete': os.remove,
         'copy': shutil.copy,
         'rename': os.rename,
         'mkdir': lambda p: os.makedirs(p, exist_ok=True),
         'listdir': os.listdir,
-        'http_get': slang_http_get,
-        'http_post': slang_http_post,
+        'http_get': shl_http_get,
+        'http_post': shl_http_post,
         'random': random.random,
         'randint': random.randint,
         'sleep': time.sleep,
@@ -587,9 +587,9 @@ def get_builtins():
         'values': lambda d: list(d.values()),
         'items': lambda d: list(d.items()),
         'wait': time.sleep,
-        'alert': slang_alert,
-        'prompt': slang_prompt,
-        'confirm': slang_confirm,
+        'alert': shl_alert,
+        'prompt': shl_prompt,
+        'confirm': shl_confirm,
         'Set': set,
         'show': print,
         'say': print,

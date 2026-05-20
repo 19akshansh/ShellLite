@@ -743,34 +743,6 @@ class LLVMCompiler:
                  print("Info: Mapping 'add' to list operation")
                  return ir.Constant(self.int32, 0)
         
-        # Stub built-ins for chess engine
-        if node.name in ('order_moves', 'pop', 'randint', 'json_parse', 'json_stringify', 'read', 'write', 'exists', 'contains', 'empty', 'clear_dict', 'split', 'ord', 'abs', 'time', 'float'):
-            if node.name == 'order_moves':
-                 print("Info: Stubbing 'order_moves' call")
-                 return self.visit(node.args[0])
-            if node.name == 'pop':
-                 print("Info: Stubbing 'pop' call")
-                 return ir.Constant(self.int32, 0)
-            if node.name == 'randint':
-                 return ir.Constant(self.int32, 42)
-            if node.name == 'abs':
-                val = self.visit(node.args[0])
-                cond = self.builder.icmp_signed('<', val, ir.Constant(self.int32, 0), name="abs_cond")
-                neg_val = self.builder.sub(ir.Constant(self.int32, 0), val, name="abs_neg")
-                return self.builder.select(cond, neg_val, val, name="abs_res")
-            if node.name == 'time':
-                print("Info: Stubbing 'time' call")
-                return ir.Constant(ir.DoubleType(), 0.0)
-            if node.name == 'contains':
-                print("Info: Stubbing 'contains' call")
-                return ir.Constant(ir.IntType(1), 1) # Assume true for now
-            if node.name == 'empty':
-                print("Info: Stubbing 'empty' call")
-                return ir.Constant(ir.IntType(1), 0)
-            
-            print(f"Info: Stubbing built-in {node.name}")
-            return ir.Constant(self.int32, 0)
-        
         if node.name in self.module.globals:
             func = self.module.globals[node.name]
         elif node.name in self.classes:
@@ -882,9 +854,9 @@ class LLVMCompiler:
 
     def visit_Dictionary(self, node: Dictionary):
         """
-        -----Purpose: Stub for dictionary literals in LLVM.
+        -----Purpose: Dictionary literals are not yet implemented in the LLVM
+        -----        backend. Returns a null pointer as a placeholder.
         """
-        print("Warning: Dictionaries are currently stubs in LLVM Backend.")
         return ir.Constant(self.char_ptr, None)
     def visit_Assign(self, node: Assign):
         """
@@ -1042,17 +1014,7 @@ class LLVMCompiler:
         self.builder.branch(cond_bb)
         dead_bb = self.builder.append_basic_block(name="dead")
         self.builder.position_at_end(dead_bb)
-    def _get_stdin_handle(self):
-        return self.builder.call(self.get_stdin, [ir.Constant(self.int32, 0)])
-    def visit_Input(self, node: Input):
-        """
-        -----Purpose: Generates LLVM calls to malloc and fgets for user input.
-        """
-        buffer_len = ir.Constant(self.int32, 256)
-        buffer = self.builder.call(self.malloc, [buffer_len], name="input_buf")
-        stdin = self._get_stdin_handle()
-        self.builder.call(self.fgets, [buffer, buffer_len, stdin])
-        return buffer
+
     def visit_FileWrite(self, node: FileWrite):
         """
         -----Purpose: Emits LLVM calls to fopen/fwrite/fclose for file output.
@@ -1171,14 +1133,17 @@ class LLVMCompiler:
 
     def visit_Try(self, node: Try):
         """
-        -----Purpose: Stub for try-catch blocks in LLVM.
+        -----Purpose: Partial implementation — executes the try body linearly.
+        -----        LLVM IR does not have native exception handling; a full
+        -----        implementation would require invoke/landingpad intrinsics.
         """
         for stmt in node.try_body:
             self.visit(stmt)
 
     def visit_TryAlways(self, node: TryAlways):
         """
-        -----Purpose: Stub for try-catch-always blocks in LLVM.
+        -----Purpose: Partial implementation — executes try body then always
+        -----        body linearly. Does not implement actual exception routing.
         """
         for stmt in node.try_body:
             self.visit(stmt)

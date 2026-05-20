@@ -443,21 +443,9 @@ class Interpreter:
         return node.value
     def visit_ListVal(self, node: ListVal):
         """
-        -----Purpose: Evaluates a list literal, including spread operations.
+        -----Purpose: Evaluates a list literal.
         """
-        result = []
-        for e in node.elements:
-            if isinstance(e, Spread):
-                spread_val = self.visit(e.value)
-                if not isinstance(spread_val, list):
-                    raise TypeError(
-                        f"Spread operator requires a list, "
-                        f"got {type(spread_val).__name__}"
-                    )
-                result.extend(spread_val)
-            else:
-                result.append(self.visit(e))
-        return result
+        return [self.visit(e) for e in node.elements]
     def visit_FileRead(self, node: FileRead):
         """
         -----Purpose: Reads a file and returns its content as a string.
@@ -734,13 +722,7 @@ class Interpreter:
 
 
 
-    def visit_Input(self, node: Input):
-        """
-        -----Purpose: Prompts the user for input.
-        """
-        if node.prompt:
-            return input(node.prompt)
-        return input()
+
     def visit_While(self, node: While):
         """
         -----Purpose: Evaluates a while loop until the condition is false.
@@ -1210,20 +1192,8 @@ class Interpreter:
                  return response.read().decode('utf-8')
         except Exception as e:
             raise RuntimeError(f"HTTP POST failed for '{url}': {e}")
-    def visit_Lambda(self, node: Lambda):
-        """
-        -----Purpose: Evaluates a lambda expression into a callable.
-        """
-        return LambdaFunction(node.params, node.body, self)
-    def visit_Ternary(self, node: Ternary):
-        """
-        -----Purpose: Evaluates a ternary conditional expression.
-        """
-        condition = self.visit(node.condition)
-        if condition:
-            return self.visit(node.true_expr)
-        else:
-            return self.visit(node.false_expr)
+
+
     def visit_ListComprehension(self, node: ListComprehension):
         """
         -----Purpose: Evaluates a list comprehension expression.
@@ -1252,11 +1222,7 @@ class Interpreter:
         finally:
             self.current_env = old_env
         return result
-    def visit_Spread(self, node: Spread):
-        """
-        -----Purpose: Returns the value of a spread operation target.
-        """
-        return self.visit(node.value)
+
     def visit_Alert(self, node: Alert):
         """
         -----Purpose: Displays a GUI alert message box (or falls back to print).
@@ -1311,35 +1277,8 @@ class Interpreter:
         if isinstance(task, concurrent.futures.Future):
             return task.result()
         return task # Graceful fallback for non-futures
-    def visit_Regex(self, node: Regex):
-        """
-        -----Purpose: Compiles and returns a regular expression object.
-        """
-        return re.compile(node.pattern)
-    def visit_FileWatcher(self, node: FileWatcher):
-        """
-        -----Purpose: Monitors a file for changes and executes a block.
-        """
-        path = self.visit(node.path)
-        if not os.path.exists(path):
-            print(f"Warning: Watching non-existent file {path}")
-            last_mtime = 0
-        else:
-            last_mtime = os.path.getmtime(path)
-        try:
-            while True:
-                current_exists = os.path.exists(path)
-                if current_exists:
-                    current_mtime = os.path.getmtime(path)
-                    if current_mtime != last_mtime:
-                        last_mtime = current_mtime
-                        for stmt in node.body:
-                            self.visit(stmt)
-                time.sleep(1)
-        except StopException:
-            pass
-        except ReturnException:
-            raise
+
+
     def _check_type(self, arg_name, val, type_hint):
         if type_hint == 'int' and not isinstance(val, int):
             raise TypeError(f"Argument '{arg_name}' expects int, got {type(val).__name__}")
@@ -1517,19 +1456,7 @@ class Interpreter:
             raise
         finally:
             self.current_env = old_env
-    def visit_When(self, node: When):
-        """
-        -----Purpose: Evaluates a pattern matching switch-like block.
-        """
-        value = self.visit(node.value)
-        for match_val, body in node.cases:
-            if self.visit(match_val) == value:
-                for stmt in body:
-                    self.visit(stmt)
-                return
-        if node.otherwise:
-            for stmt in node.otherwise:
-                self.visit(stmt)
+
     def visit_Execute(self, node: Execute):
         """
         -----Purpose: Runtime execution of code from a string.
@@ -1712,39 +1639,7 @@ class Interpreter:
                 widget.pack(side=tk.TOP, pady=5, fill=tk.X)
             else:
                 widget.pack(side=tk.LEFT, padx=5)
-    def visit_Make(self, node: Make):
-        """
-        -----Purpose: Creates an instance of a structure (alternative syntax).
-        """
-        if node.class_name not in self.classes:
-            raise NameError(f"Thing '{node.class_name}' not defined.")
-        class_def = self.classes[node.class_name]
-        props = self._get_class_properties(class_def)
-        required_count = 0
-        for name, default_val in props:
-            if default_val is None:
-                required_count += 1
-        if len(node.args) < required_count:
-             msg = (
-                 f"Thing '{node.class_name}' expects at "
-                 f"least {required_count} values, got {len(node.args)}"
-             )
-             raise TypeError(msg)
-        instance = Instance(class_def)
-        for i, (prop_name, default_val) in enumerate(props):
-            val = None
-            if i < len(node.args):
-                val = self.visit(node.args[i])
-            elif default_val is not None:
-                val = self.visit(default_val)
-            else:
-                msg = (
-                    f"Missing argument for property '{prop_name}' "
-                    f"in '{node.class_name}'"
-                )
-                raise TypeError(msg)
-            instance.data[prop_name] = val
-        return instance
+
     def visit_Convert(self, node: Convert):
         """
         -----Purpose: Converts data between different formats (e.g., JSON).
@@ -1762,55 +1657,7 @@ class Interpreter:
                  return json.dumps(val)
         msg = f"Unknown conversion format: {node.target_format}"
         raise ValueError(msg)
-    def visit_ProgressLoop(self, node: ProgressLoop):
-        """
-        -----Purpose: Displays a progress bar for a loop execution.
-        """
-        loop = node.loop_node
-        if isinstance(loop, Repeat):
-             count = self.visit(loop.count)
-             if not isinstance(count, int): count = 0
-             print("Progress: [                    ] 0%", end='\r')
-             for i in range(count):
-                 percent = int((i / count) * 100)
-                 bar = '=' * int(percent / 5)
-                 print(f"Progress: [{bar:<20}] {percent}%", end='\r')
-                 try:
-                     for stmt in loop.body:
-                         self.visit(stmt)
-                 except: 
-                     pass
-             print(f"Progress: [{'='*20}] 100%           ")
-        elif isinstance(loop, For):
-             count = self.visit(loop.count)
-             for i in range(count):
-                 percent = int((i / count) * 100)
-                 bar = '=' * int(percent / 5)
-                 print(f"Progress: [{bar:<20}] {percent}%", end='\r')
-                 try:
-                    for stmt in loop.body:
-                        self.visit(stmt)
-                 except: 
-                     pass
-             print(f"Progress: [{'='*20}] 100%           ")
-        elif isinstance(loop, ForIn):
-            iterable = self.visit(loop.iterable)
-            total = len(iterable) if hasattr(iterable, '__len__') else 0
-            i = 0
-            for item in iterable:
-                if total > 0:
-                    percent = int((i / total) * 100)
-                    bar = '=' * int(percent / 5)
-                    print(f"Progress: [{bar:<20}] {percent}%", end='\r')
-                self.current_env.set(loop.var_name, item)
-                try:
-                    for stmt in loop.body:
-                        self.visit(stmt)
-                except: 
-                    pass
-                i += 1
-            if total > 0:
-                print(f"Progress: [{'='*20}] 100%           ")
+
     def visit_DatabaseOp(self, node: DatabaseOp):
         """
         -----Purpose: Performs database operations with Safe Mode checks.
@@ -2324,31 +2171,7 @@ class Interpreter:
              if 'plyer' not in sys.modules:
                  raise RuntimeError("Install 'plyer'")
              notification.notify(title=str(args[0]), message=str(args[1]))
-    def visit_DateOp(self, node: DateOp):
-        """
-        -----Purpose: Evaluates relative date strings (today, tomorrow, etc.).
-        """
-        if node.expr == 'today':
-            return datetime.now().strftime("%Y-%m-%d")
-        today = datetime.now()
-        s = node.expr.lower().strip()
-        if s == 'tomorrow':
-            d = today + timedelta(days=1)
-            return d.strftime("%Y-%m-%d")
-        elif s == 'yesterday':
-            d = today - timedelta(days=1)
-            return d.strftime("%Y-%m-%d")
-        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        if s.startswith('next '):
-            day_str = s.replace('next ', '').strip()
-            if day_str in days:
-                 target_idx = days.index(day_str)
-                 current_idx = today.weekday()
-                 days_ahead = target_idx - current_idx
-                 if days_ahead <= 0: days_ahead += 7
-                 d = today + timedelta(days=days_ahead)
-                 return d.strftime("%Y-%m-%d")
-        return s
+
     def visit_FileWrite(self, node: FileWrite):
         """
         -----Purpose: Writes or appends content to a file. Restricted in Safe Mode.
