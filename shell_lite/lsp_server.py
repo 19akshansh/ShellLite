@@ -252,7 +252,7 @@ class LSPServer:
                     "renameProvider": True,
                     "referencesProvider": True,
                 },
-                "serverInfo": {"name": "ShellLite Enhanced LSP", "version": "0.6.1"},
+                "serverInfo": {"name": "ShellLite Enhanced LSP", "version": "0.6.1.1"},
             })
         elif method == "textDocument/didOpen":
             uri = params["textDocument"]["uri"]

@@ -3,7 +3,7 @@ Lexical Analysis module for ShellLite. Tokenizes source code.
 """
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -156,6 +156,17 @@ class Lexer:
         self.line_number: int = 1
         self.indent_stack: List[int] = [0]
         self.bracket_depth: int = 0
+
+    def tokenize_line_only(self) -> List[Token]:
+        """Tokenize a single line without handling INDENT/DEDENT/NEWLINE."""
+        self.tokens = []
+        stripped_line = self.source_code.strip()
+        if not stripped_line or stripped_line.startswith('#'):
+            return []
+        
+        start_pos = len(self.source_code) - len(self.source_code.lstrip())
+        self.tokenize_line(self.source_code, start_pos)
+        return self.tokens
 
     def tokenize(self) -> List[Token]:
         """

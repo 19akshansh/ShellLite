@@ -10,7 +10,6 @@ from .ast_nodes import (
     DatabaseOp,
     DeleteRecords,
     Download,
-    Execute,
     FileRead,
     FileWrite,
     FindRecords,
@@ -26,18 +25,16 @@ from .ast_nodes import (
     UpdateRecords,
 )
 
-
 def ensure_safe(statements):
     """
-    -----Purpose: Scans an AST for restricted operations when Safe Mode is active.
-    -----        Raises PermissionError if an unsafe node is discovered.
+    Scans AST nodes and raises PermissionError if any unsafe node is discovered while SHL_SAFE is enabled.
     """
     if os.environ.get("SHL_SAFE") != "1":
         return
 
     unsafe_types = (
         DatabaseOp, Download, ArchiveOp, CsvOp, ClipboardOp, AutomationOp,
-        FileRead, FileWrite, Execute, Spawn, Await,
+        FileRead, FileWrite, Spawn, Await,
         ModelDef, CreateTable, InsertRecord, UpdateRecords, DeleteRecords, FindRecords,
         Listen, OnRequest, ServeStatic
     )

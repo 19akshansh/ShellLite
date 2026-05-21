@@ -1,5 +1,6 @@
 from llvmlite import ir
 
+
 class LLVMBuilderHelper:
     def __init__(self, module, builder, int_type, char_ptr, str_constants):
         self.module = module

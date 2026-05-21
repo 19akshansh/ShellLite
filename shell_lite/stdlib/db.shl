@@ -1,0 +1,34 @@
+use python "sqlite3"
+
+to std_db_open path
+    global _db_conn
+    _db_conn = sqlite3.connect(path)
+    give _db_conn
+
+to std_db_close
+    global _db_conn
+    if _db_conn
+        _db_conn.close()
+        _db_conn = null
+
+to std_db_exec sql, params=[]
+    global _db_conn
+    cursor = _db_conn.cursor()
+    cursor.execute(sql, params)
+    _db_conn.commit()
+    give cursor
+
+to std_db_query sql, params=[]
+    global _db_conn
+    cursor = _db_conn.cursor()
+    cursor.execute(sql, params)
+    columns = []
+    for description in cursor.description
+        add description[0] to columns
+    results = []
+    for row in cursor.fetchall()
+        dict_row = {}
+        for i in range 0 len(columns)
+            dict_row[columns[i]] = row[i]
+        add dict_row to results
+    give results

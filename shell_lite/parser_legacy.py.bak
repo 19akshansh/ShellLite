@@ -8,7 +8,7 @@ from .ast_nodes import *
 import re
 class Parser:
     """
-    -----Purpose: Recursive descent parser that converts Token streams into AST Nodes.
+    Recursive descent parser that converts Token streams into AST Nodes.
     """
     def __init__(self, tokens: List[Token]):
         self.tokens = [t for t in tokens if t.type != 'COMMENT']

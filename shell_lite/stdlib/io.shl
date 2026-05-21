@@ -1,0 +1,63 @@
+use python "os"
+use python "shutil"
+
+to read path
+    give std_io_read(path)
+
+to write path, content
+    std_io_write(path, content)
+
+to append path, content
+    std_io_append(path, content)
+
+to exists path
+    give std_io_exists(path)
+
+to delete path
+    std_io_delete(path)
+
+to copy src, dest
+    std_io_copy(src, dest)
+
+to rename old, new
+    std_io_rename(old, new)
+
+to mkdir path
+    std_io_mkdir(path)
+
+to listdir path
+    give std_io_listdir(path)
+
+to std_io_read path
+    f = open(path, "r")
+    content = f.read()
+    f.close()
+    give content
+
+to std_io_write path, content
+    f = open(path, "w")
+    f.write(content)
+    f.close()
+
+to std_io_append path, content
+    f = open(path, "a")
+    f.write(content)
+    f.close()
+
+to std_io_exists path
+    give os.path.exists(path)
+
+to std_io_delete path
+    os.remove(path)
+
+to std_io_copy src, dest
+    shutil.copy(src, dest)
+
+to std_io_rename old, new
+    os.rename(old, new)
+
+to std_io_mkdir path
+    os.makedirs(path, exist_ok=yes)
+
+to std_io_listdir path
+    give os.listdir(path)

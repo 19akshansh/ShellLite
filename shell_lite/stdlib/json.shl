@@ -1,0 +1,7 @@
+use python "json" as py_json
+
+to std_json_parse s
+    give py_json.loads(s)
+
+to std_json_stringify obj
+    give py_json.dumps(obj)

@@ -1,5 +1,4 @@
 """
------Purpose: CLI entry point wrapper for the ShellLite compiler.
 """
 import os
 import sys

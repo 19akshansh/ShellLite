@@ -1,14 +1,12 @@
-﻿import pytest
-from llvmlite import ir
-import llvmlite.binding as llvm
+﻿import llvmlite.binding as llvm
+import pytest
 
 from shell_lite.ast_nodes import *
 from shell_lite.llvm_backend.codegen import LLVMCompiler
-from shell_lite.llvm_backend.errors import CompilerError
+
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_llvm():
-    llvm.initialize()
     llvm.initialize_native_target()
     llvm.initialize_native_asmprinter()
 
@@ -51,7 +49,8 @@ def test_integration_hello_world(compiler):
     ]
     module = compiler.compile(stmts, is_entry_point=True)
     ir_str = str(module)
-    assert "define i32 @main()" in ir_str
+    assert "define i32" in ir_str
+    assert "@\"main\"()" in ir_str
     assert "Hello World" in ir_str
 
 def test_integration_loop(compiler):
@@ -64,5 +63,6 @@ def test_integration_loop(compiler):
     ]
     module = compiler.compile(stmts, is_entry_point=True)
     ir_str = str(module)
-    assert "define i32 @main()" in ir_str
+    assert "define i32" in ir_str
+    assert "@\"main\"()" in ir_str
 

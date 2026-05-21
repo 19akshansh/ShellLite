@@ -6,17 +6,16 @@ import subprocess
 import sys
 import traceback
 
-from .ast_nodes import *
+from .ast_nodes import (
+    Node, FunctionDef, ClassDef, Assign, If, While, For,
+)
 from .interpreter import Interpreter
 from .lexer import Lexer
 from .parser import Parser
 
 
 def execute_source(source: str, interpreter: Interpreter):
-    """
-    -----Purpose: Tokenizes, parses, and executes a source string using a 
-    -----        provided interpreter instance. Displays formatted errors.
-    """
+    """Parse and execute ShellLite source code with error reporting."""
     lines = source.split('\n')
     import difflib
     try:
@@ -50,9 +49,7 @@ def execute_source(source: str, interpreter: Interpreter):
         if os.environ.get("SHL_DEBUG"):
             traceback.print_exc()
 def run_file(filename: str):
-    """
-    -----Purpose: Opens a file, reads its content, and executes it.
-    """
+    """Load and execute a .shl file."""
     if not os.path.exists(filename):
         print(f"Error: File '{filename}' not found.")
         return
@@ -62,13 +59,11 @@ def run_file(filename: str):
     execute_source(source, interpreter)
 
 def run_repl():
-    """
-    -----Purpose: Starts an interactive Read-Eval-Print Loop for ShellLite.
-    """
+    """Start the interactive ShellLite REPL."""
     interpreter = Interpreter()
     print("\n" + "="*40)
     print("="*40)
-    print("Version: v0.6")
+    print("Version: v0.6.1.1")
     print("Commands: Type 'exit' to quit, 'help' for examples.")
     print("Note: Terminal commands (like 'shl install') must be run outside the REPL.")
     try:
@@ -138,10 +133,7 @@ def run_repl():
             print(f"Error: {e}")
             buffer = []
 def install_globally():
-    """
-    -----Purpose: Installs ShellLite globally by copying the executable and 
-    -----        modifying the user's PATH via PowerShell.
-    """
+    """Install ShellLite globally by copying the executable and modifying the user's PATH."""
     print("\n" + "="*50)
     print("  ShellLite Global Installer")
     print("="*50)
@@ -211,10 +203,7 @@ def install_globally():
     except Exception as e:
         print(f"Installation failed: {e}")
 def init_project():
-    """
-    -----Purpose: Initializes a new ShellLite project by creating a 
-    -----        default shell-lite.toml configuration file.
-    """
+    """Initialize a new ShellLite project with a default shell-lite.toml config file."""
     if os.path.exists("shell-lite.toml"):
         print("Error: shell-lite.toml already exists.")
         return
@@ -230,22 +219,15 @@ def init_project():
     print("[SUCCESS] Created shell-lite.toml")
     print("Run 'shl install' to install dependencies listed in it.")
 
-def install_all_dependencies():
-    """
-    -----Purpose: Reads shell-lite.toml and installs all project dependencies.
-    """
-    if not os.path.exists("shell-lite.toml"):
-        msg = "Error: No shell-lite.toml found. Run 'shl init' first."
-        print(msg)
-        return
-    print("Reading shell-lite.toml...")
+def parse_toml_dependencies(file_path):
     deps = {}
+    if not os.path.exists(file_path):
+        return deps
     in_deps = False
-    with open("shell-lite.toml", 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith('#'):
-                continue
+            if not line or line.startswith('#'): continue
             if line == "[dependencies]":
                 in_deps = True
                 continue
@@ -257,161 +239,123 @@ def install_all_dependencies():
                 key = parts[0].strip().strip('"').strip("'")
                 val = parts[1].strip().strip('"').strip("'")
                 deps[key] = val
+    return deps
+
+def install_all_dependencies():
+    """
+    Reads shell-lite.toml and installs all project dependencies recursively.
+    """
+    if not os.path.exists("shell-lite.toml"):
+        print("Error: No shell-lite.toml found. Run 'shl init' first.")
+        return
+    print("Reading shell-lite.toml...")
+    deps = parse_toml_dependencies("shell-lite.toml")
     if not deps:
         print("No dependencies found.")
         return
-    print(f"Found {len(deps)} dependencies.")
+    print(f"Found {len(deps)} root dependencies.")
+    installed = set()
     for repo, branch in deps.items():
-        install_package(repo, branch=branch)
+        install_package(repo, branch=branch, _visited=installed)
 
-def show_package_info(package_name: str):
+def install_package(package_name: str, branch: str = "main", _visited=None):
     """
-    -----Purpose: Displays metadata for an installed package by 
-    -----        reading its 'shell-lite.toml' file.
+    Downloads and extracts a specific GitHub repository.
+    Recursively resolves dependencies found in the package's shell-lite.toml.
+    Maintains a cache to avoid redundant downloads.
     """
-    home = os.path.expanduser("~")
-    modules_dir = os.path.join(home, ".shell_lite", "modules")
-    pkg_path = os.path.join(modules_dir, package_name)
-    toml_path = os.path.join(pkg_path, "shell-lite.toml")
+    if _visited is None:
+        _visited = set()
     
-    if not os.path.exists(pkg_path):
-        print(f"Error: Package '{package_name}' is not installed.")
+    if package_name in _visited:
         return
+    _visited.add(package_name)
     
-    print(f"\nPackage Info: {package_name}")
-    print("-" * 40)
-    if os.path.exists(toml_path):
-        try:
-            with open(toml_path, 'r') as f:
-                content = f.read()
-                def get_field(key):
-                    m = re.search(fr'{key}\s*=\s*"(.*?)"', content)
-                    return m.group(1) if m else "Unknown"
-                
-                print(f"  Version:     {get_field('version')}")
-                print(f"  Description: {get_field('description')}")
-                print(f"  Authors:     {get_field('authors')}")
-        except Exception as e:
-            print(f"  Error reading metadata: {e}")
-    else:
-        print("  No 'shell-lite.toml' metadata found.")
-    print("-" * 40 + "\n")
-
-def list_packages():
-    """
-    -----Purpose: Lists all ShellLite modules currently installed in the 
-    -----        local modules directory.
-    """
-    home = os.path.expanduser("~")
-    modules_dir = os.path.join(home, ".shell_lite", "modules")
-    if not os.path.exists(modules_dir) or not os.listdir(modules_dir):
-        print("No packages installed in 'The Universe' yet.")
-        return
-    print("\nInstalled Packages in The Universe:")
-    print("-" * 40)
-    for folder in os.listdir(modules_dir):
-        pkg_path = os.path.join(modules_dir, folder)
-        if os.path.isdir(pkg_path):
-            print(f"  [v0.6] {folder}")
-    print("-" * 40)
-
-def search_package(query=None):
-    """
-    -----Purpose: Searches GitHub for repositories tagged with 'shell-lite'
-    -----        or 'ShellLite'. Displays stars and last update time.
-    """
-    import json
-    import urllib.request as request
-    
-    tag_query = "topic:shell-lite+topic:ShellLite"
-    if query:
-        tag_query = f"{query}+topic:shell-lite+topic:ShellLite"
-        
-    import urllib.parse
-    encoded_query = urllib.parse.quote(tag_query.replace('+', ' '))
-    url = f"https://api.github.com/search/repositories?q={encoded_query}&sort=stars&order=desc"
-    print(f"Searching The Universe for '{query or 'all'}'...")
-    
-    try:
-        req = request.Request(url, headers={'User-Agent': 'ShellLite-CLI'})
-        with request.urlopen(req) as response:
-            data = json.loads(response.read().decode())
-        
-        items = data.get('items', [])
-        if not items:
-            print("No matching packages found in The Universe.")
-            return
-
-        print("\n" + "="*85)
-        print(f"{'Package (User/Repo)':<30} | {'Stars':<6} | {'Updated':<12} | {'Description'}")
-        print("-" * 85)
-        for item in items[:10]:
-            name = item['full_name']
-            stars = item['stargazers_count']
-            updated = item['updated_at'].split('T')[0]
-            desc = (item['description'] or "")[:30]
-            print(f"{name:<30} | {stars:<6} | {updated:<12} | {desc}")
-        print("="*85 + "\n")
-    except Exception as e:
-        print(f"Search failed: {e}")
-
-def install_package(package_name: str, branch: str = "main"):
-    """
-    -----Purpose: Downloads and extracts a specific GitHub repository into 
-    -----        the local ShellLite modules directory.
-    """
     if '/' not in package_name:
-        msg = f"Error: Package '{package_name}' must be in format 'user/repo'"
-        print(msg)
+        print(f"Error: Package '{package_name}' must be in format 'user/repo'")
         return
     user, repo = package_name.split('/')
     print("\n" + "="*50)
-    print(f"  Fetching: {package_name}")
-    print(f"  Branch:   {branch}")
+    print(f"  Fetching: {package_name}@{branch}")
     print("="*50)
     
     home = os.path.expanduser("~")
     modules_dir = os.path.join(home, ".shell_lite", "modules")
-    if not os.path.exists(modules_dir):
-        os.makedirs(modules_dir)
+    cache_dir = os.path.join(home, ".shell_lite", ".cache")
+    if not os.path.exists(modules_dir): os.makedirs(modules_dir)
+    if not os.path.exists(cache_dir): os.makedirs(cache_dir)
+    
     target_dir = os.path.join(modules_dir, repo)
+    cache_file = os.path.join(cache_dir, f"{user}_{repo}_{branch}.zip")
+    
+    import io
+    import shutil
+    import urllib.error
+    import urllib.request as request
+    import zipfile
     
     base_url = f"https://github.com/{user}/{repo}/archive/refs/heads"
     zip_url = f"{base_url}/{branch}.zip"
-    print(f"  -> Locating package at {zip_url}...")
-    try:
-        import io
-        import shutil
-        import urllib.request as request
-        import zipfile
-        print(f"Downloading {zip_url}...")
+    
+    zip_data = None
+    if os.path.exists(cache_file):
+        print(f"  -> Using cached version from {cache_file}")
+        with open(cache_file, "rb") as f:
+            zip_data = f.read()
+    else:
+        print(f"  -> Downloading {zip_url}...")
         try:
-            with request.urlopen(zip_url) as response:
+            req = request.Request(zip_url, headers={'User-Agent': 'ShellLite-CLI'})
+            with request.urlopen(req) as response:
                 zip_data = response.read()
+            # Save to cache
+            with open(cache_file, "wb") as f:
+                f.write(zip_data)
         except urllib.error.HTTPError as e:
             if branch == "main" and e.code == 404:
-                print("Branch 'main' not found, trying 'master'...")
+                print("  -> Branch 'main' not found, trying 'master'...")
                 zip_url = f"{base_url}/master.zip"
-                with request.urlopen(zip_url) as response:
-                    zip_data = response.read()
+                try:
+                    req = request.Request(zip_url, headers={'User-Agent': 'ShellLite-CLI'})
+                    with request.urlopen(req) as response:
+                        zip_data = response.read()
+                    with open(cache_file, "wb") as f:
+                        f.write(zip_data)
+                except Exception as ex:
+                    print(f"Installation failed: {ex}")
+                    return
             else:
-                 raise e
+                print(f"Installation failed: {e}")
+                return
+        except Exception as e:
+            print(f"Installation failed: {e}")
+            return
+            
+    try:
         with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
             z.extractall(modules_dir)
             root_name = z.namelist()[0].split('/')[0]
         
         extracted_path = os.path.join(modules_dir, root_name)
         if os.path.exists(target_dir):
-             shutil.rmtree(target_dir)
+            shutil.rmtree(target_dir)
         os.rename(extracted_path, target_dir)
-        print(f"[SUCCESS] Installed '{package_name}' to {target_dir}")
+        print(f"[SUCCESS] Installed '{package_name}'")
+        
+        # Recursive dependency resolution
+        pkg_toml = os.path.join(target_dir, "shell-lite.toml")
+        if os.path.exists(pkg_toml):
+            sub_deps = parse_toml_dependencies(pkg_toml)
+            if sub_deps:
+                print(f"  -> Resolving {len(sub_deps)} dependencies for {package_name}...")
+                for sub_repo, sub_branch in sub_deps.items():
+                    install_package(sub_repo, branch=sub_branch, _visited=_visited)
+                    
     except Exception as e:
-        print(f"Installation failed for {package_name}: {e}")
+        print(f"Extraction failed for {package_name}: {e}")
 
 def compile_file(filename: str, target: str = 'llvm'):
-    """
-    -----Purpose: Transpiles a ShellLite script to JS, Python, or LLVM.
-    """
+    """Compile a .shl file to the specified target language."""
     if not os.path.exists(filename):
         print(f"Error: File '{filename}' not found.")
         return
@@ -485,10 +429,7 @@ def compile_file(filename: str, target: str = 'llvm'):
         print(f"Compilation Failed: {e}")
 
 def lint_file(filename: str):
-    """
-    -----Purpose: Validates the syntax of a ShellLite file and outputs JSON
-    -----        errors compatible with IDE extensions.
-    """
+    """Lint a .shl file and output JSON diagnostics for IDE integration."""
     if not os.path.exists(filename):
         msg = f"File {filename} not found"
         print(json.dumps([{"line": 0, "message": msg}]))
@@ -508,10 +449,6 @@ def lint_file(filename: str):
             "message": str(e)
         }]))
 def resolve_cursor(filename: str, line: int, col: int):
-    """
-    -----Purpose: Resolves the definition of an identifier at a given 
-    -----        cursor position for IDE 'Go to Definition' features.
-    """
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             source = f.read()
@@ -578,10 +515,7 @@ def resolve_cursor(filename: str, line: int, col: int):
         print(json.dumps({"found": False}))
 
 def format_file(filename: str):
-    """
-    -----Purpose: Standardizes the indentation and style of a ShellLite 
-    -----        file using the built-in formatter.
-    """
+    """Format a .shl file in place using the built in formatter."""
     if not os.path.exists(filename):
         print(f"Error: File '{filename}' not found.")
         return
@@ -597,10 +531,7 @@ def format_file(filename: str):
     except Exception as e:
         print(f"Formatting failed: {e}")
 def self_install_check():
-    """
-    -----Purpose: Checks if ShellLite is in the system PATH and offers to 
-    -----        install it globally if not.
-    """
+    """Check if ShellLite is globally installed and offer to install it if not."""
     if not shutil.which("shl"):
         print("\nShellLite is not installed globally.")
         msg = (
@@ -612,11 +543,9 @@ def self_install_check():
             install_globally()
 
 def show_help():
-    """
-    -----Purpose: Displays CLI usage information and available commands.
-    """
+    """Display the CLI help message."""
     print("""
-ShellLite - The English-Like Programming Language
+ShellLite - The English Like Programming Language
 Usage:
   shl <filename.shl>    Run a ShellLite script
   shl                   Start the interactive REPL
@@ -641,10 +570,7 @@ Optional static typing:
 For documentation, visit: https://github.com/ShellLite/ShellLite
 """)
 def main():
-    """
-    -----Purpose: Main CLI dispatcher for ShellLite. Handles all system 
-    -----        arguments and routes to appropriate functions.
-    """
+    """CLI entry point: parse command-line arguments and route to appropriate functions."""
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
         safe_mode = '--safe' in sys.argv

@@ -1,0 +1,26 @@
+try
+    use python "keyboard"
+    use python "mouse"
+    use python "pyperclip"
+    from python "plyer" import notification
+catch e
+    # Optional dependencies not installed
+    int(0)
+
+to std_automation_click x, y
+    getattr(mouse, "click")(x, y)
+
+to std_automation_type text
+    getattr(keyboard, "write")(text)
+
+to std_automation_press key
+    keyboard.press_and_release(key)
+
+to std_automation_notify title, message
+    getattr(notification, "notify")(title, message)
+
+to std_automation_copy text
+    getattr(pyperclip, "copy")(text)
+
+to std_automation_paste
+    give getattr(pyperclip, "paste")()

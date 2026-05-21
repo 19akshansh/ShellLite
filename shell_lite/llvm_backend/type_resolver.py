@@ -1,5 +1,6 @@
 from llvmlite import ir
 
+
 class TypeResolver:
     def __init__(self, builder, int_type):
         self.builder = builder

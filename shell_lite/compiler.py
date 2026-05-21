@@ -1,33 +1,46 @@
-import os
-import random
 from typing import List
 
-from .ast_nodes import *
+from .ast_nodes import (
+    Node, Number, String, Boolean, ListVal, Dictionary, VarAccess, BinOp,
+    UnaryOp, Call, MethodCall, PropertyAccess, IndexAccess, Await, Assign,
+    ConstAssign, TypedAssign, PropertyAssign, Print, If, While, For, ForIn,
+    Unless, Match, Repeat, Forever, Until, FunctionDef, Return, ClassDef,
+    Instantiation, Import, ImportAs, PythonImport, FromImport, Try, TryAlways,
+    Throw, Stop, Skip, Exit, ListComprehension, Spawn, Parallel, Gather,
+    Lock, Channel, Send, Receive, ModelDef, CreateTable, InsertRecord,
+    FindRecords, UpdateRecords, DeleteRecords, Convert, Download, ArchiveOp,
+    CsvOp, ClipboardOp, AutomationOp, FileWrite, FileRead, DatabaseOp,
+    Every, After, Listen, ServeStatic, OnRequest, Alert, Prompt, Confirm,
+)
 
 
 class Compiler:
-    """
-    -----Purpose: Compiles the custom AST nodes down to executing Python source code.
-    """
+    """Transpiles ShellLite AST nodes into executable Python source code."""
+
+    _uid_counter = 0
+
+    @classmethod
+    def _next_uid(cls) -> int:
+        cls._uid_counter += 1
+        return cls._uid_counter
+
     def __init__(self):
         self.indentation = 0
         self.active_properties = None
+
     def indent(self):
-        """
-        -----Purpose: Returns a string of spaces based on current indentation.
-        """
         return "    " * self.indentation
+
     def visit(self, node: Node) -> str:
         method_name = f'visit_{type(node).__name__}'
         visitor = getattr(self, method_name, self.generic_visit)
         return visitor(node)
+
     def generic_visit(self, node: Node):
         raise Exception(f"Compiler does not support {type(node).__name__}")
+
     def compile_block(self, statements: List[Node]) -> str:
-        """
-        -----Purpose: Compiles a list of AST nodes into a single string of 
-        -----        indented Python code.
-        """
+        """Compile a list of AST statements into a block of indented Python code."""
         if not statements:
             return f"{self.indent()}pass"
         code = ""
@@ -51,10 +64,6 @@ class Compiler:
             code += indented_stmt + "\n"
         return code.rstrip()
     def compile(self, statements: List[Node]) -> str:
-        """
-        -----Purpose: Compiles the full script, including imports and the 
-        -----        web DSL support runtime.
-        """
         code = [
             "import sys",
             "import os",
@@ -235,9 +244,6 @@ class Compiler:
     def visit_PropertyAssign(self, node: PropertyAssign):
         return f"{node.instance_name}.{node.property_name} = {self.visit(node.value)}"
     def visit_BinOp(self, node: BinOp):
-        """
-        -----Purpose: Compiles binary operations, including custom 'matches'.
-        """
         left = self.visit(node.left)
         right = self.visit(node.right)
         op = node.op
@@ -278,9 +284,6 @@ class Compiler:
         return code
 
     def visit_Unless(self, node: Unless):
-        """
-        -----Purpose: Compiles an UNLESS block (if not condition) to Python.
-        """
         code = f"if not ({self.visit(node.condition)}):\n"
         self.indentation += 1
         code += self.compile_block(node.body)
@@ -288,9 +291,6 @@ class Compiler:
         return code
 
     def visit_Match(self, node: Match):
-        """
-        -----Purpose: Compiles a pattern matching block into if-elif-else statements.
-        """
         code = ""
         match_var_expr = self.visit(node.match_expr)
         
@@ -319,9 +319,6 @@ class Compiler:
         return code
 
     def visit_ForIn(self, node: ForIn):
-        """
-        -----Purpose: Compiles a standard for-in loop over an iterable.
-        """
         code = f"for {node.var_name} in {self.visit(node.iterable)}:\n"
         self.indentation += 1
         code += self.compile_block(node.body)
@@ -349,9 +346,6 @@ class Compiler:
     def visit_Download(self, node: Download):
         return f"shl_download({self.visit(node.url)})"
     def visit_ArchiveOp(self, node: ArchiveOp):
-        """
-        -----Purpose: Compiles zip/unzip archive operations.
-        """
         src = self.visit(node.source)
         trg = self.visit(node.target)
         return f"shl_archive({repr(node.op)}, {src}, {trg})"
@@ -374,9 +368,6 @@ class Compiler:
         return "pass"
 
     def visit_FileWrite(self, node: FileWrite):
-        """
-        -----Purpose: Compiles a file write operation using runtime helpers.
-        """
         path = self.visit(node.path)
         cont = self.visit(node.content)
         return f"shl_file_write({path}, {cont}, {repr(node.mode)})"
@@ -408,9 +399,6 @@ class Compiler:
         code += self.compile_block(node.body)
         return code
     def visit_FunctionDef(self, node: FunctionDef):
-        """
-        -----Purpose: Compiles a ShellLite function into a Python def.
-        """
         args_strs = []
         has_default = False
         for arg_name, default_node, type_hint in node.args:
@@ -442,7 +430,7 @@ class Compiler:
                 args.append(f"{k}={self.visit(v)}")
         call_expr = f"{node.name}({', '.join(args)})"
         if node.body:
-             var_name = f"_tag_{random.randint(0, 1000000)}"
+             var_name = f"_tag_{self._next_uid()}"
              code = f"{var_name} = {call_expr}\n"
              code += f"with BuilderContext({var_name}):\n"
              old_indent = self.indentation
@@ -454,9 +442,6 @@ class Compiler:
              return code
         return call_expr
     def visit_ClassDef(self, node: ClassDef):
-        """
-        -----Purpose: Compiles a ShellLite class into a Python class.
-        """
         old_props = getattr(self, 'active_properties', None)
         prop_names = []
         for prop in node.properties:
@@ -525,9 +510,6 @@ class Compiler:
              base = os.path.basename(node.path).replace('.shl', '').replace('.py', '')
              return f"from {base} import *"
     def visit_ImportAs(self, node: ImportAs):
-        """
-        -----Purpose: Compiles prioritized imports with aliases.
-        """
         if node.path in ('math', 'time', 'http', 'env', 'args', 'path', 're'):
              return f"{node.alias} = STD_MODULES['{node.path}']"
         base = os.path.basename(node.path).replace('.shl', '')
@@ -582,9 +564,6 @@ class Compiler:
         code = self.visit(node.code) if node.code else "0"
         return f"sys.exit({code})"
     def visit_ListComprehension(self, node: ListComprehension):
-        """
-        -----Purpose: Compiles a list comprehension.
-        """
         iter_str = self.visit(node.iterable)
         expr_str = self.visit(node.expr)
         c_str = ""
@@ -674,9 +653,6 @@ class Compiler:
         return f"shl_db_delete('{node.model_name}', {conds_str})"
 
     def visit_Listen(self, node: Listen):
-        """
-        -----Purpose: Compiles the HTTP server start command.
-        """
         port = self.visit(node.port)
         code = f"server_address = ('', {port})\n"
         h_setup = (
@@ -690,11 +666,8 @@ class Compiler:
     def visit_ServeStatic(self, node: ServeStatic):
          return f"GLOBAL_STATIC_ROUTES[{self.visit(node.url)}] = {self.visit(node.folder)}"
     def visit_OnRequest(self, node: OnRequest):
-        """
-        -----Purpose: Registers a route handler for the HTTP server.
-        """
         path = self.visit(node.path)
-        u_id = random.randint(0, 1000)
+        u_id = self._next_uid()
         func_name = f"route_handler_{abs(hash(str(node.path)))}_{u_id}"
         code = f"def {func_name}():\n"
         old_indent = self.indentation
@@ -710,4 +683,4 @@ class Compiler:
     def visit_Prompt(self, node: Prompt):
         return f"shl_prompt({self.visit(node.prompt)})"
     def visit_Confirm(self, node: Confirm):
-        return f"shl_confirm({self.visit(node.prompt)})"
+        return f"shl_confirm({self.visit(node.prompt)})"

@@ -6,22 +6,40 @@ from .lexer import Token
 
 
 @dataclass
-class ASTNode:
-    head_token: Token
-    line: int
-    indent_level: int
+class GeoNode:
+    line_num: int = 0
+    indent_level: int = 0
+    raw_text: str = ""
+    head_token: Optional[Token] = None
     tokens: List[Token] = field(default_factory=list)
-    children: List['ASTNode'] = field(default_factory=list)
-    parent: Optional['ASTNode'] = None
+    children: List['GeoNode'] = field(default_factory=list)
+    parent: Optional['GeoNode'] = None
+    line: int = 0
+
+    def __post_init__(self):
+        if self.line > 0 and self.line_num == 0:
+            self.line_num = self.line
+        elif self.line_num > 0 and self.line == 0:
+            self.line = self.line_num
 
     def __repr__(self):
-        return f"ASTNode(line={self.line}, indent={self.indent_level}, head={self.head_token.type})"
+        head_type = self.head_token.type if self.head_token else 'None'
+        return f"GeoNode(line={self.line_num}, indent={self.indent_level}, head={head_type})"
 
 
 class Parser:
-    def __init__(self, tokens: List[Token]):
-        self.tokens = [t for t in tokens if t.type != 'COMMENT']
-        self.root_nodes: List[ASTNode] = []
+    def __init__(self, source_or_tokens: Any = None, tokens: List[Token] = None):
+        if isinstance(source_or_tokens, str):
+            self.source_code = source_or_tokens
+            self.legacy_tokens = tokens
+        elif isinstance(source_or_tokens, list):
+            self.source_code = None
+            self.legacy_tokens = source_or_tokens
+        else:
+            self.source_code = None
+            self.legacy_tokens = tokens
+            
+        self.root_nodes: List[GeoNode] = []
         self.precedence = {
             'OR': 1, 'AND': 2, 'NOT': 3,
             'EQ': 4, 'NEQ': 4, 'LT': 5, 'GT': 5, 'LE': 5, 'GE': 5, 'IS': 5,
@@ -33,27 +51,130 @@ class Parser:
         }
 
     def parse(self) -> List[Node]:
-        self.topology_scan()
+        if self.legacy_tokens is not None and self.source_code is None:
+            self.tokens = [t for t in self.legacy_tokens if t.type != 'COMMENT']
+            self.topology_scan_legacy()
+            return self.bind_statement_list(self.root_nodes)
+            
+        flat_nodes = self.phase1_topography_scan(self.source_code)
+        if not flat_nodes:
+            return []
+            
+        self.root_nodes = self.phase2_topology_linking(flat_nodes)
+        
+        from .lexer import Lexer
+        for node in flat_nodes:
+            lexer = Lexer(node.raw_text)
+            lexer.line_number = node.line_num
+            node.tokens = lexer.tokenize_line_only()
+            for t in node.tokens:
+                if t.type != 'NOISE':
+                    node.head_token = t
+                    break
+            if not node.head_token and node.tokens:
+                node.head_token = node.tokens[0]
+
         return self.bind_statement_list(self.root_nodes)
 
-    def bind_statement_list(self, geo_nodes: List[ASTNode]) -> List[Node]:
+    def phase1_topography_scan(self, source: str) -> List[GeoNode]:
+        nodes = []
+        lines = source.split('\n')
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            indent_level = len(line) - len(line.lstrip())
+            nodes.append(GeoNode(
+                line_num=i + 1,
+                indent_level=indent_level,
+                raw_text=line
+            ))
+        return nodes
+
+    def phase2_topology_linking(self, nodes: List[GeoNode]) -> List[GeoNode]:
+        if not nodes:
+            return []
+        root = GeoNode(0, -1, "")
+        stack = [root]
+        for node in nodes:
+            while node.indent_level <= stack[-1].indent_level:
+                stack.pop()
+            node.parent = stack[-1]
+            stack[-1].children.append(node)
+            stack.append(node)
+        return root.children
+
+    def topology_scan_legacy(self):
+        current_node: Optional[GeoNode] = None
+        last_line_node: Optional[GeoNode] = None
+        block_stack: List[GeoNode] = []
+        for token in self.tokens:
+            if token.type == 'EOF':
+                break
+            if token.type == 'INDENT':
+                p_push = current_node if current_node else last_line_node
+                if p_push:
+                    block_stack.append(p_push)
+                current_node = None
+                continue
+            if token.type == 'DEDENT':
+                if block_stack:
+                    block_stack.pop()
+                continue
+            if token.type == 'NEWLINE':
+                last_line_node = current_node
+                current_node = None
+                continue
+            if current_node is None:
+                current_node = GeoNode(
+                    line_num=token.line,
+                    indent_level=len(block_stack),
+                    raw_text="",
+                    head_token=token,
+                    tokens=[token]
+                )
+                if block_stack:
+                    parent = block_stack[-1]
+                    parent.children.append(current_node)
+                    current_node.parent = parent
+                else:
+                    self.root_nodes.append(current_node)
+            else:
+                current_node.tokens.append(token)
+
+    def bind_statement_list(self, geo_nodes: List[GeoNode]) -> List[Node]:
         ast_nodes = []
         i = 0
         while i < len(geo_nodes):
             geo_node = geo_nodes[i]
-            head_type = geo_node.head_token.type
+            
+            # Find first non-noise token for dispatch
+            effective_head = geo_node.head_token
+            for t in geo_node.tokens:
+                if t.type != 'NOISE':
+                    effective_head = t
+                    break
+            head_type = effective_head.type
+            
             if head_type == 'IF':
                 if_node = self.bind_if(geo_node)
                 j = i + 1
                 curr = if_node
                 while j < len(geo_nodes):
                     next_geo = geo_nodes[j]
-                    if next_geo.head_token.type == 'ELIF':
+                    
+                    next_effective_head = next_geo.head_token
+                    for t in next_geo.tokens:
+                        if t.type != 'NOISE':
+                            next_effective_head = t
+                            break
+                    
+                    if next_effective_head.type == 'ELIF':
                         elif_node = self.bind_if(next_geo)
                         curr.else_body = [elif_node]
                         curr = elif_node
                         j += 1
-                    elif next_geo.head_token.type == 'ELSE':
+                    elif next_effective_head.type == 'ELSE':
                         curr.else_body = self.bind_statement_list(next_geo.children)
                         j += 1
                         break
@@ -70,12 +191,19 @@ class Parser:
                 j = i + 1
                 while j < len(geo_nodes):
                     next_geo = geo_nodes[j]
-                    if next_geo.head_token.type == 'CATCH':
+                    
+                    next_effective_head = next_geo.head_token
+                    for t in next_geo.tokens:
+                        if t.type != 'NOISE':
+                            next_effective_head = t
+                            break
+                            
+                    if next_effective_head.type == 'CATCH':
                         if len(next_geo.tokens) > 1:
                             catch_var = next_geo.tokens[1].value
                         catch_body = self.bind_statement_list(next_geo.children)
                         j += 1
-                    elif next_geo.head_token.type == 'ALWAYS':
+                    elif next_effective_head.type == 'ALWAYS':
                         always_body = self.bind_statement_list(next_geo.children)
                         j += 1
                     else:
@@ -96,9 +224,9 @@ class Parser:
         return ast_nodes
 
     def topology_scan(self):
-        current_node: Optional[ASTNode] = None
-        last_line_node: Optional[ASTNode] = None
-        block_stack: List[ASTNode] = []
+        current_node: Optional[GeoNode] = None
+        last_line_node: Optional[GeoNode] = None
+        block_stack: List[GeoNode] = []
         for token in self.tokens:
             if token.type == 'EOF':
                 break
@@ -117,7 +245,7 @@ class Parser:
                 current_node = None
                 continue
             if current_node is None:
-                current_node = ASTNode(
+                current_node = GeoNode(
                     head_token=token,
                     line=token.line,
                     indent_level=len(block_stack),
@@ -132,8 +260,8 @@ class Parser:
             else:
                 current_node.tokens.append(token)
     
-    def _set_node_loc(self, ast_node: Node, geo_node: ASTNode):
-        """Helper to set location on an AST node from a ASTNode."""
+    def _set_node_loc(self, ast_node: Node, geo_node: GeoNode):
+        """Helper to set location on an AST node from a GeoNode."""
         if not ast_node or not isinstance(ast_node, Node):
             return ast_node
         ast_node.line = geo_node.line
@@ -149,7 +277,7 @@ class Parser:
             ast_node.end_col = last_tok.column + len(str(last_tok.value))
         return ast_node
 
-    def bind_node(self, node: ASTNode) -> Node:
+    def bind_node(self, node: GeoNode) -> Node:
         # Find first non-noise token for dispatch
         effective_head = node.head_token
         for t in node.tokens:
@@ -162,29 +290,29 @@ class Parser:
             'IF': self.bind_if, 'WHILE': self.bind_while,
             'FOR': self.bind_for, 'LOOP': self.bind_for,
             'REPEAT': self.bind_repeat, 'FOREVER': self.bind_forever,
-            'USE': self.bind_use, 'SERVE': self.bind_serve,
+            'USE': self.bind_use, 'SERVE': self.bind_dsl_lowering,
             'DEFINE': self.bind_define, 'STRUCTURE': self.bind_structure,
-            'WHEN': self.bind_when, 'DB': self.bind_db,
+            'WHEN': self.bind_dsl_lowering, 'DB': self.bind_dsl_lowering,
             'TRY': self.bind_try, 'UNLESS': self.bind_unless,
-            'UNTIL': self.bind_until, 'ON': self.bind_on,
+            'UNTIL': self.bind_until, 'ON': self.bind_dsl_lowering,
             'FUNCTION': self.bind_func, 'TO': self.bind_func,
             'PRINT': self.bind_print, 'SAY': self.bind_print,
             'MAKE': self.bind_assignment, 'CONST': self.bind_const,
             'RETURN': self.bind_return,
-            'ALERT': self.bind_alert, 'PROMPT': self.bind_prompt,
-            'CONFIRM': self.bind_confirm, 'EXECUTE': self.bind_execute,
+            'ALERT': self.bind_dsl_lowering, 'PROMPT': self.bind_dsl_lowering,
+            'CONFIRM': self.bind_dsl_lowering, 'EXECUTE': self.bind_dsl_lowering,
             'EXIT': self.bind_exit, 'STOP': self.bind_stop,
-            'SKIP': self.bind_skip, 'ERROR': self.bind_error,
+            'SKIP': self.bind_skip, 'ERROR': self.bind_dsl_lowering,
             'SPAWN': self.bind_spawn, 'AWAIT': self.bind_await,
-            'EVERY': self.bind_every, 'AFTER': self.bind_after_in,
-            'IN': self.bind_after_in, 'WRITE': self.bind_file_op,
-            'APPEND': self.bind_file_op, 'READ': self.bind_file_op,
-            'COPY': self.bind_clipboard_op, 'PASTE': self.bind_clipboard_op,
-            'CLIPBOARD': self.bind_clipboard_op, 'CSV': self.bind_csv_op,
-            'COMPRESS': self.bind_archive_op, 'EXTRACT': self.bind_archive_op,
-            'PRESS': self.bind_automation, 'TYPE': self.bind_automation,
-            'CLICK': self.bind_automation, 'NOTIFY': self.bind_automation,
-            'DOWNLOAD': self.bind_download, 'APP': self.bind_app,
+            'EVERY': self.bind_dsl_lowering, 'AFTER': self.bind_dsl_lowering,
+            'IN': self.bind_dsl_lowering, 'WRITE': self.bind_dsl_lowering,
+            'APPEND': self.bind_dsl_lowering, 'READ': self.bind_dsl_lowering,
+            'COPY': self.bind_dsl_lowering, 'PASTE': self.bind_dsl_lowering,
+            'CLIPBOARD': self.bind_dsl_lowering, 'CSV': self.bind_dsl_lowering,
+            'COMPRESS': self.bind_dsl_lowering, 'EXTRACT': self.bind_dsl_lowering,
+            'PRESS': self.bind_dsl_lowering, 'TYPE': self.bind_dsl_lowering,
+            'CLICK': self.bind_dsl_lowering, 'NOTIFY': self.bind_dsl_lowering,
+            'DOWNLOAD': self.bind_dsl_lowering, 'APP': self.bind_dsl_lowering,
             'IMPORT': self.bind_import_enhanced,
             'FROM': self.bind_from_import,
             'SET': self.bind_expression_statement,
@@ -203,21 +331,19 @@ class Parser:
             'TEST': self.bind_test,
             'EXPECT': self.bind_assert,
             'ENSURE': self.bind_assert,
-            # Epic 3: Concurrency
             'PARALLEL': self.bind_parallel,
             'GATHER': self.bind_expression_statement,
             'LOCK': self.bind_lock,
             'CHANNEL': self.bind_expression_statement,
             'SEND': self.bind_send,
             'RECEIVE': self.bind_expression_statement,
-            # Epic 5: ORM
-            'MODEL': self.bind_model,
-            'CREATE': self.bind_create_table,
-            'INSERT': self.bind_insert_record,
-            'FIND': self.bind_find_records,
-            'UPDATE': self.bind_update_records,
-            'DELETE': self.bind_delete_records,
-            'START': self.bind_start,
+            'MODEL': self.bind_dsl_lowering,
+            'CREATE': self.bind_dsl_lowering,
+            'INSERT': self.bind_dsl_lowering,
+            'FIND': self.bind_dsl_lowering,
+            'UPDATE': self.bind_dsl_lowering,
+            'DELETE': self.bind_dsl_lowering,
+            'START': self.bind_dsl_lowering,
         }
         
         if head_type in bind_map:
@@ -281,36 +407,38 @@ class Parser:
         ast_node = self.bind_expression_statement(node)
         return self._set_node_loc(ast_node, node)
 
-    def bind_expression_statement(self, node: ASTNode) -> Node:
+    def bind_expression_statement(self, node: GeoNode) -> Node:
         return self.parse_expr_iterative(node.tokens, node.children)
 
-    def peek_type(self, node: ASTNode, offset: int) -> str:
+    def peek_type(self, node: GeoNode, offset: int) -> str:
         if offset < len(node.tokens):
             return node.tokens[offset].type
         return ""
 
-    def bind_if(self, node: ASTNode) -> If:
+    def bind_if(self, node: GeoNode) -> If:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
         condition = self.parse_expr_iterative(expr_tokens)
         body = self.bind_statement_list(node.children)
         return If(condition, body, None)
 
-    def bind_unless(self, node: ASTNode) -> Unless:
+    def bind_unless(self, node: GeoNode) -> Node:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
         condition = self.parse_expr_iterative(expr_tokens)
         body = self.bind_statement_list(node.children)
-        return Unless(condition, body)
+        return If(UnaryOp('not', condition), body)
 
-    def bind_until(self, node: ASTNode) -> Until:
+    def bind_until(self, node: GeoNode) -> Node:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
         condition = self.parse_expr_iterative(expr_tokens)
         body = self.bind_statement_list(node.children)
-        return Until(condition, body)
+        return While(UnaryOp('not', condition), body)
 
-    def bind_try(self, node: ASTNode) -> Try:
-        return None
+    def bind_try(self, node: GeoNode) -> Try:
+        try_body = self.bind_statement_list(node.children)
+        # Default fallback if catch/always aren't grouped by bind_statement_list
+        return Try(try_body, "e", [])
 
-    def bind_structure(self, node: ASTNode) -> ClassDef:
+    def bind_structure(self, node: GeoNode) -> ClassDef:
         tokens = node.tokens
         name = tokens[1].value
         parent = None
@@ -359,49 +487,26 @@ class Parser:
                 methods.append(self.bind_func(child))
         return ClassDef(name, properties, methods, parent)
 
-    def bind_db(self, node: ASTNode) -> DatabaseOp:
-        tokens = node.tokens
-        op = 'open'
-        i = 1
-        if i < len(tokens):
-            t = tokens[i]
-            if t.type == 'OPEN':
-                i += 1
-            elif t.type == 'QUERY':
-                op = 'query'
-                i += 1
-            elif t.type == 'EXEC':
-                op = 'exec'
-                i += 1
-            elif t.type == 'CLOSE':
-                op = 'close'
-                i += 1
-        args = []
-        if op != 'close':
-            remaining = tokens[i:]
-            if remaining:
-                args.append(self.parse_expr_iterative(remaining))
-        return DatabaseOp(op, args)
 
-    def bind_while(self, node: ASTNode) -> While:
+    def bind_while(self, node: GeoNode) -> While:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
         condition = self.parse_expr_iterative(expr_tokens)
         body = self.bind_statement_list(node.children)
         return While(condition, body)
 
-    def bind_repeat(self, node: ASTNode) -> Repeat:
+    def bind_repeat(self, node: GeoNode) -> Node:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
-        if expr_tokens and expr_tokens[-1].type == 'TIMES':
-            expr_tokens.pop()
+        if expr_tokens and expr_tokens[-1].type == 'TIMES': expr_tokens.pop()
         count = self.parse_expr_iterative(expr_tokens)
         body = self.bind_statement_list(node.children)
         return Repeat(count, body)
 
-    def bind_forever(self, node: ASTNode) -> Forever:
-        body = self.bind_statement_list(node.children)
-        return Forever(body)
 
-    def bind_for(self, node: ASTNode) -> Optional[Node]:
+    def bind_forever(self, node: GeoNode) -> Node:
+        body = self.bind_statement_list(node.children)
+        return While(Boolean(True), body)
+
+    def bind_for(self, node: GeoNode) -> Optional[Node]:
         if len(node.tokens) < 3:
             return None
         
@@ -456,7 +561,7 @@ class Parser:
             iterable = self.parse_expr_iterative(iter_tokens)
         return ForIn(var_name, iterable, body)
 
-    def bind_print(self, node: ASTNode) -> Print:
+    def bind_print(self, node: GeoNode) -> Print:
         tokens = node.tokens[1:]
         style = None
         color = None
@@ -476,7 +581,7 @@ class Parser:
         expr = self.parse_expr_iterative(expr_tokens)
         return Print(expr, style=style, color=color)
 
-    def bind_return(self, node: ASTNode) -> Return:
+    def bind_return(self, node: GeoNode) -> Return:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
         if node.children:
             for child in node.children:
@@ -484,7 +589,7 @@ class Parser:
         expr = self.parse_expr_iterative(expr_tokens)
         return Return(expr)
 
-    def bind_assignment(self, node: ASTNode) -> Assign:
+    def bind_assignment(self, node: GeoNode) -> Assign:
         tokens = node.tokens
         
         # Find assignment operator while ignoring noise
@@ -505,7 +610,7 @@ class Parser:
                 break
         
         if not name:
-            raise SyntaxError("LHS of assignment must contain an identifier")
+            raise SyntaxError(f"LHS of assignment must contain an identifier. Tokens: {tokens}")
 
         # Check for type hint: ID AS ID ASSIGN
         type_hint = None
@@ -541,7 +646,7 @@ class Parser:
             return TypedAssign(name, type_hint, value)
         return Assign(name, value)
         
-    def bind_const(self, node: ASTNode) -> ConstAssign:
+    def bind_const(self, node: GeoNode) -> ConstAssign:
         tokens = node.tokens
         if len(tokens) < 4:
             raise SyntaxError("Invalid constant assignment syntax")
@@ -560,7 +665,7 @@ class Parser:
         value = self.parse_expr_iterative(expr_tokens)
         return ConstAssign(name, value)
         
-    def bind_complex_assignment(self, node: ASTNode, assign_idx: int) -> Any:
+    def bind_complex_assignment(self, node: GeoNode, assign_idx: int) -> Any:
         lhs_tokens = node.tokens[:assign_idx]
         value_tokens = node.tokens[assign_idx + 1:]
         
@@ -591,20 +696,80 @@ class Parser:
         
         return Assign(str(lhs_expr), value_expr)
 
-    def bind_expression_stmt(self, node: ASTNode) -> Any:
+    def bind_dsl_lowering(self, node: GeoNode) -> Node:
+        """Lowers DSL keywords (db, web, gui) into standard library Call nodes."""
+        tokens = node.tokens
+        head = tokens[0].type
+        
+        if head == 'DB':
+            op = tokens[1].value.lower() if len(tokens) > 1 else 'query'
+            args = []
+            if len(tokens) > 2:
+                args.append(self.parse_expr_iterative(tokens[2:]))
+            return Call(f"std_db_{op}", args)
+            
+        if head == 'ON' or (head == 'WHEN' and any(t.type == 'VISITS' for t in tokens)):
+            # when someone visits "/path" -> on_visit("/", handler)
+            path = String("/")
+            for t in tokens:
+                if t.type == 'STRING':
+                    path = String(t.value)
+                    break
+            body = self.bind_statement_list(node.children)
+            return Call("std_web_on_request", [path], body=body)
+
+        if head == 'SERVE':
+            # serve files from "public" at "/static" -> serve_static("/static", "public")
+            folder = String('public')
+            url = String('/static')
+            for i, t in enumerate(tokens):
+                if t.type == 'FROM' and i + 1 < len(tokens):
+                    folder = self.parse_expr_iterative([tokens[i + 1]])
+                if t.type == 'AT' and i + 1 < len(tokens):
+                    url = self.parse_expr_iterative([tokens[i + 1]])
+            return Call("std_web_serve_static", [url, folder])
+
+        if head == 'START' and len(tokens) > 1:
+            if tokens[1].type == 'SERVER':
+                # start server on port 8080 -> listen(8080)
+                port = Number(8080)
+                for i, t in enumerate(tokens):
+                    if t.type == 'PORT' and i + 1 < len(tokens):
+                        port = self.parse_expr_iterative([tokens[i + 1]])
+                return Call("std_web_listen", [port])
+            if tokens[1].type == 'ID' and tokens[1].value.lower() == 'website':
+                return Call("std_web_listen", [Number(8080)])
+
+        if head in ('WRITE', 'APPEND', 'READ'):
+            # write content to file path -> std_io_write(path, content)
+            op = head.lower()
+            if head == 'READ':
+                return Call("std_io_read", [self.parse_expr_iterative(tokens[1:])])
+            
+            content = self.parse_expr_iterative([tokens[1]])
+            path = String('output.txt')
+            for i, t in enumerate(tokens):
+                if t.type == 'FILE' and i + 1 < len(tokens):
+                    path = self.parse_expr_iterative(tokens[i+1:])
+            return Call(f"std_io_{op}", [path, content])
+
+        # Fallback for other keywords
+        return self.bind_call_or_expr(node)
+
+    def bind_expression_stmt(self, node: GeoNode) -> Any:
         return self.parse_expr_iterative(node.tokens)
 
-    def bind_start(self, node: ASTNode) -> Listen:
+    def bind_start(self, node: GeoNode) -> Listen:
         return Listen(Number(8080))
 
-    def bind_listen(self, node: ASTNode) -> Listen:
+    def bind_listen(self, node: GeoNode) -> Listen:
         expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
         if expr_tokens and expr_tokens[0].type == 'PORT':
             expr_tokens.pop(0)
         port = self.parse_expr_iterative(expr_tokens)
         return Listen(port)
 
-    def bind_func(self, node: ASTNode) -> FunctionDef:
+    def bind_func(self, node: GeoNode) -> FunctionDef:
         start = 1
         if node.tokens[0].type == 'DEFINE':
             start = 2
@@ -636,83 +801,8 @@ class Parser:
         body = self.bind_statement_list(node.children)
         return FunctionDef(name, args, body)
 
-    def bind_alert(self, node: ASTNode) -> Alert:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Alert(expr)
 
-    def bind_prompt(self, node: ASTNode) -> Prompt:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Prompt(expr)
-
-    def bind_confirm(self, node: ASTNode) -> Confirm:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Confirm(expr)
-
-    def bind_execute(self, node: ASTNode) -> Execute:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Execute(expr)
-
-    def bind_exit(self, node: ASTNode) -> Exit:
-        expr = None
-        if len(node.tokens) > 1:
-            expr = self.parse_expr_iterative(node.tokens[1:])
-        return Exit(expr)
-
-    def bind_stop(self, node: ASTNode) -> Stop:
-        return Stop()
-
-    def bind_skip(self, node: ASTNode) -> Skip:
-        return Skip()
-
-    def bind_error(self, node: ASTNode) -> Throw:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Throw(expr)
-
-    def bind_spawn(self, node: ASTNode) -> Spawn:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Spawn(expr)
-
-    def bind_await(self, node: ASTNode) -> Await:
-        expr = self.parse_expr_iterative(node.tokens[1:])
-        return Await(expr)
-
-    def bind_every(self, node: ASTNode) -> Every:
-        tokens = node.tokens
-        interval = self.parse_expr_iterative([tokens[1]])
-        unit = 'seconds'
-        if len(tokens) > 2:
-            if tokens[2].type == 'MINUTE':
-                unit = 'minutes'
-        body = self.bind_statement_list(node.children)
-        return Every(interval, unit, body)
-
-    def bind_after_in(self, node: ASTNode) -> After:
-        tokens = node.tokens
-        delay = self.parse_expr_iterative([tokens[1]])
-        unit = 'seconds'
-        if len(tokens) > 2:
-            if tokens[2].type == 'MINUTE':
-                unit = 'minutes'
-        body = self.bind_statement_list(node.children)
-        return After(delay, unit, body)
-
-    def bind_add(self, node: ASTNode) -> Node:
-        tokens = node.tokens
-        # ADD [item] TO [target]
-        to_idx = -1
-        for i, t in enumerate(tokens):
-            if t.type == 'TO':
-                to_idx = i
-                break
-        
-        if to_idx != -1:
-            item = self.parse_expr_iterative(tokens[1:to_idx])
-            target = self.parse_expr_iterative(tokens[to_idx + 1:])
-            return Call('add', [target, item])
-        
-        return self.bind_expression_statement(node)
-
-    def bind_natural_math(self, node: ASTNode) -> Node:
+    def bind_natural_math(self, node: GeoNode) -> Node:
         tokens = node.tokens
         head = tokens[0].type
         by_idx = -1
@@ -727,9 +817,41 @@ class Parser:
             op = '+' if head == 'INCREMENT' else '-'
             return Assign(var_name, BinOp(VarAccess(var_name), op, val))
             
+    def bind_add(self, node: GeoNode) -> Node:
+        tokens = node.tokens
+        to_idx = -1
+        for i, t in enumerate(tokens):
+            if t.type == 'TO':
+                to_idx = i
+                break
+        if to_idx != -1:
+            item = self.parse_expr_iterative(tokens[1:to_idx])
+            target = self.parse_expr_iterative(tokens[to_idx + 1:])
+            return Call('add', [target, item])
         return self.bind_expression_statement(node)
 
-    def bind_remove(self, node: ASTNode) -> Node:
+    def bind_exit(self, node: GeoNode) -> Exit:
+        expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
+        code = self.parse_expr_iterative(expr_tokens) if expr_tokens else None
+        return Exit(code)
+
+    def bind_stop(self, node: GeoNode) -> Stop:
+        return Stop()
+
+    def bind_skip(self, node: GeoNode) -> Skip:
+        return Skip()
+
+    def bind_spawn(self, node: GeoNode) -> Spawn:
+        expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
+        call = self.parse_expr_iterative(expr_tokens)
+        return Spawn(call)
+
+    def bind_await(self, node: GeoNode) -> Await:
+        expr_tokens = self._extract_expr_tokens(node.tokens, start=1)
+        task = self.parse_expr_iterative(expr_tokens)
+        return Await(task)
+
+    def bind_remove(self, node: GeoNode) -> Node:
         tokens = node.tokens
         from_idx = -1
         for i, t in enumerate(tokens):
@@ -744,56 +866,8 @@ class Parser:
             
         return self.bind_expression_statement(node)
 
-    def bind_file_op(self, node: ASTNode) -> Node:
-        tokens = node.tokens
-        head = tokens[0].type
-        if head == 'READ':
-            return FileRead(self.parse_expr_iterative(tokens[1:]))
-        mode = 'w' if head == 'WRITE' else 'a'
-        content = self.parse_expr_iterative([tokens[1]])
-        path_tokens = tokens[3:] if len(tokens) > 3 else []
-        path = (
-            self.parse_expr_iterative(path_tokens) if path_tokens
-            else String('output.txt')
-        )
-        return FileWrite(path, content, mode)
 
-    def bind_csv_op(self, node: ASTNode) -> CsvOp:
-        path = self.parse_expr_iterative(node.tokens[2:])
-        return CsvOp('load', None, path)
-
-    def bind_clipboard_op(self, node: ASTNode) -> ClipboardOp:
-        op = node.tokens[0].value.lower()
-        return ClipboardOp(op, None)
-
-    def bind_archive_op(self, node: ASTNode) -> ArchiveOp:
-        return ArchiveOp(
-            node.tokens[0].value.lower(),
-            self.parse_expr_iterative([node.tokens[1]]),
-            self.parse_expr_iterative(node.tokens[3:])
-        )
-
-    def bind_automation(self, node: ASTNode) -> AutomationOp:
-        return AutomationOp(
-            node.tokens[0].value.lower(),
-            [self.parse_expr_iterative(node.tokens[1:])]
-        )
-
-    def bind_download(self, node: ASTNode) -> Download:
-        return Download(self.parse_expr_iterative(node.tokens[1:]))
-
-    def bind_app(self, node: ASTNode) -> App:
-        tokens = node.tokens
-        title = tokens[1].value
-        width, height = 500, 400
-        for i, t in enumerate(tokens):
-            if t.type == 'SIZE' and i + 2 < len(tokens):
-                width = int(tokens[i + 1].value)
-                height = int(tokens[i + 2].value)
-        body = self.bind_statement_list(node.children)
-        return App(title, width, height, body)
-
-    def bind_ui_block(self, node: ASTNode) -> Node:
+    def bind_ui_block(self, node: GeoNode) -> Node:
         head = node.head_token.type
         if head in ('COLUMN', 'ROW'):
             return Layout(
@@ -812,16 +886,16 @@ class Parser:
             return Widget(head.lower(), label, var_name, handler)
         return self.bind_node(node)
 
-    def bind_middleware(self, node: ASTNode) -> OnRequest:
+    def bind_middleware(self, node: GeoNode) -> OnRequest:
         return OnRequest(
             String('__middleware__'),
             self.bind_statement_list(node.children)
         )
 
-    def bind_use(self, node: ASTNode) -> Node:
+    def bind_use(self, node: GeoNode) -> Node:
         return self.bind_import_enhanced(node)
 
-    def bind_import_enhanced(self, node: ASTNode) -> Node:
+    def bind_import_enhanced(self, node: GeoNode) -> Node:
         tokens = node.tokens
         if len(tokens) > 2 and tokens[1].value.lower() == 'python':
             module = tokens[2].value
@@ -834,7 +908,7 @@ class Parser:
             return ImportAs(path, tokens[3].value)
         return Import(path)
 
-    def bind_from_import(self, node: ASTNode) -> FromImport:
+    def bind_from_import(self, node: GeoNode) -> FromImport:
         tokens = node.tokens
         module = tokens[1].value
         names = []
@@ -863,7 +937,7 @@ class Parser:
                     
         return FromImport(module, names)
 
-    def bind_natural_list(self, node: ASTNode) -> ListVal:
+    def bind_natural_list(self, node: GeoNode) -> ListVal:
         idx = -1
         for i, t in enumerate(node.tokens):
             if t.type == 'OF':
@@ -896,7 +970,7 @@ class Parser:
         ]
         return ListVal(items)
 
-    def bind_test(self, node: ASTNode) -> TestBlock:
+    def bind_test(self, node: GeoNode) -> TestBlock:
         name = "unnamed test"
         if len(node.tokens) > 1:
             name_val = self.parse_expr_iterative(node.tokens[1:])
@@ -905,7 +979,7 @@ class Parser:
         body = self.bind_statement_list(node.children)
         return TestBlock(name, body)
 
-    def bind_assert(self, node: ASTNode) -> Assertion:
+    def bind_assert(self, node: GeoNode) -> Assertion:
         tokens = node.tokens
         to_idx = -1
         is_not = False
@@ -935,11 +1009,11 @@ class Parser:
         
         return Assertion(left, op_str, right)
 
-    def bind_parallel(self, node: ASTNode) -> Parallel:
+    def bind_parallel(self, node: GeoNode) -> Parallel:
         body = self.bind_statement_list(node.children)
         return Parallel(body)
 
-    def bind_lock(self, node: ASTNode) -> Lock:
+    def bind_lock(self, node: GeoNode) -> Lock:
         name = "default"
         if len(node.tokens) > 1:
             name_val = self.parse_expr_iterative(node.tokens[1:])
@@ -948,7 +1022,7 @@ class Parser:
         body = self.bind_statement_list(node.children)
         return Lock(name, body)
 
-    def bind_send(self, node: ASTNode) -> Send:
+    def bind_send(self, node: GeoNode) -> Send:
         tokens = node.tokens[1:]
         if len(tokens) < 2:
             raise SyntaxError("send requires a channel and a value")
@@ -956,158 +1030,18 @@ class Parser:
         value = self.parse_expr_iterative(tokens[1:])
         return Send(channel, value)
 
-    def bind_model(self, node: ASTNode) -> ModelDef:
-        name = node.tokens[1].value if len(node.tokens) > 1 else "UnnamedModel"
-        fields = []
-        for child in node.children:
-            child_tokens = child.tokens
-            if child_tokens and child_tokens[0].type == 'HAS':
-                field_name = child_tokens[1].value if len(child_tokens) > 1 else "unnamed"
-                field_type = "str"
-                for i, t in enumerate(child_tokens):
-                    if t.type == 'AS' and i + 1 < len(child_tokens):
-                        field_type = child_tokens[i + 1].value.lower()
-                fields.append((field_name, field_type))
-        return ModelDef(name, fields)
 
-    def bind_create_table(self, node: ASTNode) -> CreateTable:
-        tokens = node.tokens
-        model_name = "Unknown"
-        for i, t in enumerate(tokens):
-            if t.type == 'TABLE' and i + 1 < len(tokens):
-                model_name = tokens[i + 1].value
-        return CreateTable(model_name)
 
-    def bind_insert_record(self, node: ASTNode) -> InsertRecord:
-        tokens = node.tokens
-        model_name = tokens[1].value if len(tokens) > 1 else "Unknown"
-        values = []
-        i = 2
-        while i < len(tokens) - 1:
-            field_name = tokens[i].value
-            value = self.parse_expr_iterative([tokens[i + 1]])
-            values.append((field_name, value))
-            i += 2
-        return InsertRecord(model_name, values)
 
-    def _parse_orm_conditions(self, tokens) -> list:
-        conditions = []
-        i = 0
-        while i < len(tokens):
-            if i + 2 < len(tokens):
-                field = tokens[i].value
-                # "more than" or "greater than"
-                if tokens[i + 1].type in ('GREATER',) or tokens[i + 1].value == 'more':
-                    if i + 3 < len(tokens) and tokens[i + 2].type == 'THAN':
-                        value = self.parse_expr_iterative([tokens[i + 3]])
-                        conditions.append((field, ">", value))
-                        i += 4
-                        continue
-                # "less than"
-                elif tokens[i + 1].type in ('LESS',):
-                    if i + 3 < len(tokens) and tokens[i + 2].type == 'THAN':
-                        value = self.parse_expr_iterative([tokens[i + 3]])
-                        conditions.append((field, "<", value))
-                        i += 4
-                        continue
-                # "is" / "equals"
-                elif tokens[i + 1].type in ('IS', 'EQUAL'):
-                    value = self.parse_expr_iterative([tokens[i + 2]])
-                    conditions.append((field, "=", value))
-                    i += 3
-                    continue
-                # "contains"
-                elif tokens[i + 1].type == 'CONTAINS':
-                    value = self.parse_expr_iterative([tokens[i + 2]])
-                    conditions.append((field, "LIKE", value))
-                    i += 3
-                    continue
-            i += 1
-        return conditions
 
-    def bind_find_records(self, node: ASTNode) -> FindRecords:
-        tokens = node.tokens[1:]  # skip 'find'
-        find_all = True
-        is_count = False
-        i = 0
-        # Check for 'all' or 'count of' keywords
-        if i < len(tokens):
-            if tokens[i].value == 'all':
-                find_all = True
-                i += 1
-            elif tokens[i].type == 'COUNT':
-                is_count = True
-                i += 1
-                if i < len(tokens) and tokens[i].type == 'OF':
-                    i += 1
-        
-        model_name = tokens[i].value if i < len(tokens) else "Unknown"
-        i += 1
-        conditions = []
-        # Check for WHERE
-        if i < len(tokens) and tokens[i].type == 'WHERE':
-            i += 1
-            conditions = self._parse_orm_conditions(tokens[i:])
-        return FindRecords(model_name, conditions, find_all, is_count)
 
-    def bind_update_records(self, node: ASTNode) -> UpdateRecords:
-        tokens = node.tokens[1:]
-        model_name = tokens[0].value if tokens else "Unknown"
-        conditions = []
-        updates = []
-        # Split on 'where' and 'set'
-        where_idx = -1
-        set_idx = -1
-        for i, t in enumerate(tokens):
-            if t.type == 'WHERE':
-                where_idx = i
-            if t.type == 'SET':
-                set_idx = i
-        if where_idx != -1 and set_idx != -1:
-            conditions = self._parse_orm_conditions(tokens[where_idx + 1:set_idx])
-            upd_tokens = tokens[set_idx + 1:]
-            j = 0
-            while j < len(upd_tokens) - 1:
-                field_name = upd_tokens[j].value
-                value = self.parse_expr_iterative([upd_tokens[j + 1]])
-                updates.append((field_name, value))
-                j += 2
-        elif set_idx != -1:
-            upd_tokens = tokens[set_idx + 1:]
-            j = 0
-            while j < len(upd_tokens) - 1:
-                field_name = upd_tokens[j].value
-                value = self.parse_expr_iterative([upd_tokens[j + 1]])
-                updates.append((field_name, value))
-                j += 2
-        return UpdateRecords(model_name, conditions, updates)
 
-    def bind_delete_records(self, node: ASTNode) -> DeleteRecords:
-        tokens = node.tokens[1:]
-        model_name = tokens[0].value if tokens else "Unknown"
-        conditions = []
-        for i, t in enumerate(tokens):
-            if t.type == 'WHERE':
-                conditions = self._parse_orm_conditions(tokens[i + 1:])
-                break
-        return DeleteRecords(model_name, conditions)
-
-    def bind_natural_set(self, node: ASTNode) -> Call:
+    def bind_natural_set(self, node: GeoNode) -> Call:
         l_val = self.bind_natural_list(node)
         return Call('set', [l_val])
 
-    def bind_serve(self, node: ASTNode) -> ServeStatic:
-        folder = String('public')
-        url = String('/static')
-        tokens = node.tokens
-        for i, t in enumerate(tokens):
-            if t.type == 'FROM' and i + 1 < len(tokens):
-                folder = self.parse_expr_iterative([tokens[i + 1]])
-            if t.type == 'AT' and i + 1 < len(tokens):
-                url = self.parse_expr_iterative([tokens[i + 1]])
-        return ServeStatic(folder, url)
 
-    def bind_define(self, node: ASTNode) -> FunctionDef:
+    def bind_define(self, node: GeoNode) -> FunctionDef:
         tokens = node.tokens
         name = ''
         args = []
@@ -1130,7 +1064,7 @@ class Parser:
         body = self.bind_statement_list(node.children)
         return FunctionDef(name, args, body)
 
-    def bind_when(self, node: ASTNode) -> Node:
+    def bind_when(self, node: GeoNode) -> Node:
         is_match = False
         for child in node.children:
             if child.head_token.type in ('IS', 'OTHERWISE'):
@@ -1163,7 +1097,7 @@ class Parser:
         body = self.bind_statement_list(node.children)
         return OnRequest(path, body)
 
-    def bind_on(self, node: ASTNode) -> OnRequest:
+    def bind_on(self, node: GeoNode) -> OnRequest:
         tokens = node.tokens
         path = String('/')
         for t in tokens:
@@ -1173,7 +1107,7 @@ class Parser:
         body = self.bind_statement_list(node.children)
         return OnRequest(path, body)
 
-    def bind_call_or_expr(self, node: ASTNode) -> Any:
+    def bind_call_or_expr(self, node: GeoNode) -> Any:
         tokens = node.tokens
         if len(tokens) >= 1 and tokens[0].type in (
             'ID', 'BUTTON', 'HEADING', 'PARAGRAPH', 'IMAGE', 'START', 'SERVER', 'INPUT'
@@ -1233,7 +1167,7 @@ class Parser:
             end -= 1
         return tokens[start:end]
 
-    def parse_expr_iterative(self, tokens: List[Token], children: List[ASTNode] = None) -> Node:
+    def parse_expr_iterative(self, tokens: List[Token], children: List[GeoNode] = None) -> Node:
         if not tokens:
             return None
         
@@ -1655,7 +1589,7 @@ class Parser:
                         break
                     raise SyntaxError(f"Malformed 'lerp' expression at line {t.line}")
             elif t.type == 'FIND':
-                tmp_node = ASTNode(head_token=t, line=t.line, indent_level=0, tokens=tokens[i:], children=[])
+                tmp_node = GeoNode(head_token=t, line=t.line, indent_level=0, tokens=tokens[i:], children=[])
                 res = self.bind_find_records(tmp_node)
                 values.append(res)
                 break

@@ -1,15 +1,41 @@
+"""
+ShellLite LLVM Codegen Backend
 
+Slang: The ShellLite Standard Runtime (SSR).
+This module interfaces with Slang, a C runtime that provides
+the implementation for ShellLite's dynamic
+features (lists, strings, memory)
+when compiling to native machine code.
+"""
 import logging
-from typing import Any, Optional
+import os
+from typing import Optional
 
 from llvmlite import ir
 
-from ..ast_nodes import *
+from ..ast_nodes import (
+    Node, Number, String, Boolean, VarAccess, Assign, TypedAssign,
+    ConstAssign, PropertyAssign, UnaryOp, BinOp, Print, If, While,
+    For, ForIn, Repeat, Forever, Until, Unless, ListVal, Dictionary,
+    FunctionDef, Call, Return, ClassDef, Instantiation, MethodCall,
+    PropertyAccess, Import, ImportAs, Try, TryAlways, Match, Stop,
+    Skip, Exit, FileWrite, FileRead, IndexAccess, IndexAssign,
+    Throw, Spawn, Await,
+)
 from ..lexer import Lexer
 from ..parser import Parser
 from .errors import CompilerError, UnsupportedNodeError
 
 logger = logging.getLogger("shelllite.llvm")
+
+# Module level counter for generating unique LLVM names deterministically.
+_uid_counter = 0
+
+
+def _next_uid() -> int:
+    global _uid_counter
+    _uid_counter += 1
+    return _uid_counter
 
 
 class LLVMCompiler:
@@ -30,7 +56,7 @@ class LLVMCompiler:
         target = llvm_binding.Target.from_triple(default_triple)
         target_machine = target.create_target_machine()
         self.module.data_layout = str(target_machine.target_data)
-        self.int_type = ir.IntType(64)  # 64-bit integer for pointer-width compatibility
+        self.int_type = ir.IntType(64)  # 64 bit integer for pointer width compatibility
         self.char_ptr = ir.IntType(8).as_pointer()
         vptr = ir.IntType(8).as_pointer()
         
@@ -40,13 +66,6 @@ class LLVMCompiler:
         m_ty = ir.FunctionType(vptr, [ir.IntType(64)])
         self.malloc = ir.Function(self.module, m_ty, name="malloc")
         
-        
-        dict_get_ty = ir.FunctionType(vptr, [vptr, vptr])
-        self.dict_get = ir.Function(self.module, dict_get_ty, name="dict_get")
-        
-        dict_set_ty = ir.FunctionType(ir.VoidType(), [vptr, vptr, vptr])
-        self.dict_set = ir.Function(self.module, dict_set_ty, name="dict_set")
-
         
         dict_get_ty = ir.FunctionType(vptr, [vptr, vptr])
         self.dict_get = ir.Function(self.module, dict_get_ty, name="dict_get")
@@ -119,8 +138,11 @@ class LLVMCompiler:
         self.classes = {}
         self.scanned_files = set()
         
+        from .llvm_builder import LLVMBuilderHelper
+        self.bh = LLVMBuilderHelper(self.module, self.builder, self.int_type, self.char_ptr, self.str_constants)
+
         fmt_ptr = self.bh.get_string_constant(f"DEBUG: Init {init_func_name}")
-        
+
         try:
             puts_func = self.module.get_global("puts")
         except KeyError:
@@ -129,19 +151,17 @@ class LLVMCompiler:
         self.builder.call(puts_func, [fmt_ptr])
         self.scopes = [{}]
         self.loop_stack = []
+
     def _get_scope(self):
         return self.scopes[-1]
     
     def _resolve_path(self, path):
-        import os
         path = path.strip('"\'')
         if not path.endswith('.shl'):
             path += '.shl'
         if self.base_path and not os.path.isabs(path):
-            resolved_path = os.path.join(self.base_path, path)
-        else:
-            resolved_path = path
-        return resolved_path
+            return os.path.join(self.base_path, path)
+        return path
     def compile(self, statements, is_entry_point=False):
         """Visit all statements and generate the final LLVM IR module."""
         self._scan_declarations(statements)
@@ -151,12 +171,16 @@ class LLVMCompiler:
         self.builder.ret(ir.Constant(self.int_type, 0))
         
         if is_entry_point:
-            main_func_type = ir.FunctionType(self.int_type, [])
-            real_main = ir.Function(self.module, main_func_type, name="main")
+            i32 = ir.IntType(32)
+            main_func_type = ir.FunctionType(i32, [])
+            if "main" in self.module.globals:
+                real_main = self.module.globals["main"]
+            else:
+                real_main = ir.Function(self.module, main_func_type, name="main")
             block = real_main.append_basic_block('entry')
             builder = ir.IRBuilder(block)
             builder.call(self.main_func, [])
-            builder.ret(ir.Constant(self.int_type, 0))
+            builder.ret(ir.Constant(i32, 0))
             
         return self.module
 
@@ -184,18 +208,15 @@ class LLVMCompiler:
                 if stmt.path.strip('"\'') == "time":
                      scope = self.scopes[0]
                      if "time" not in scope:
-                         # Use global variable for module stubs to ensure cross-function visibility
                          ptr = ir.GlobalVariable(self.module, self.char_ptr, name="time_mod_ptr")
                          ptr.linkage = 'common'
                          ptr.initializer = ir.Constant(self.char_ptr, None)
                          ptr.sl_type = "time"
                          scope["time"] = ptr
                      continue
-                
-                # Recursive scan for imports
-                import os
+
                 resolved_path = self._resolve_path(stmt.path)
-                
+
                 if os.path.exists(resolved_path) and resolved_path not in self.scanned_files:
                     self.scanned_files.add(resolved_path)
                     try:
@@ -211,6 +232,8 @@ class LLVMCompiler:
 
     def _declare_function(self, node: FunctionDef):
         func_name = node.name
+        if func_name == "main":
+            func_name = "_shl_main"
         if self.current_class:
             func_name = f"{self.current_class.name}_{node.name}"
             
@@ -289,7 +312,7 @@ class LLVMCompiler:
         return ir.Constant(self.int_type, int(node.value))
 
     def visit_Boolean(self, node: Boolean) -> Optional[ir.Value]:
-        return ir.Constant(ir.IntType(1), 1 if node.value else 0)
+        return ir.Constant(ir.IntType(1), 1 if str(node.value).lower() == 'true' else 0)
 
     def visit_String(self, node: String) -> Optional[ir.Value]:
         return self.bh.get_string_constant(node.value)
@@ -465,8 +488,7 @@ class LLVMCompiler:
         self.loop_stack.pop()
     def visit_Repeat(self, node: Repeat) -> Optional[ir.Value]:
         count_val = self.visit(node.count)
-        import random
-        uid = random.randint(0, 10000)
+        uid = _next_uid()
         i_ptr = self.bh.alloca(f"_loop_i_{uid}")
         self.builder.store(ir.Constant(self.int_type, 0), i_ptr)
         cond_bb = self.builder.append_basic_block(name="repeat.cond")
@@ -488,7 +510,6 @@ class LLVMCompiler:
         self.builder.position_at_end(after_bb)
         self.loop_stack.pop()
     def visit_ClassDef(self, node: ClassDef) -> Optional[ir.Value]:
-        # Passing scan_declarations already registered this, but we re-set context for bodies
         old_class = self.current_class
         self.current_class = node
         try:
@@ -518,24 +539,31 @@ class LLVMCompiler:
     def visit_PropertyAccess(self, node: PropertyAccess) -> Optional[ir.Value]:
         scope = self._get_scope()
         if node.instance_name not in scope:
-            if node.instance_name == 'self':
+            if node.instance_name == 'self' and 'self' in scope:
                 instance_ptr = self.builder.load(scope['self'])
-            raise Exception(f"Instance '{node.instance_name}' not defined")
-        
-        instance_ptr = self.builder.load(scope[node.instance_name])
-        class_name = getattr(scope[node.instance_name], 'sl_type', None)
-        
+            else:
+                raise CompilerError(f"Instance '{node.instance_name}' not defined")
+        else:
+            instance_ptr = self.builder.load(scope[node.instance_name])
+
+        class_name = getattr(scope.get(node.instance_name), 'sl_type', None)
+
         if not class_name:
-             # Heuristic fallback
-             for name, info in self.struct_registry.items():
-                 if node.property_name in info['properties']:
-                     class_name = name
-                     break
-        
-        if not class_name:
-            raise Exception(f"Could not resolve property '{node.property_name}'")
-            
-        prop_idx = self.struct_registry[class_name]['properties'][node.property_name]
+            raise CompilerError(
+                f"Cannot resolve type for '{node.instance_name}' when accessing "
+                f"property '{node.property_name}'. Attach type info via sl_type."
+            )
+
+        if class_name not in self.struct_registry:
+            raise CompilerError(f"Unknown struct type '{class_name}'")
+
+        props = self.struct_registry[class_name]['properties']
+        if node.property_name not in props:
+            raise CompilerError(
+                f"Struct '{class_name}' has no property '{node.property_name}'"
+            )
+
+        prop_idx = props[node.property_name]
         offset = ir.Constant(self.int_type, prop_idx)
         ptr = self.builder.gep(instance_ptr, [offset], name="propptr")
         ptr = self.builder.bitcast(ptr, self.int_type.as_pointer())
@@ -545,17 +573,26 @@ class LLVMCompiler:
         value = self.visit(node.value)
         scope = self._get_scope()
         if node.instance_name not in scope:
-            raise Exception(f"Instance '{node.instance_name}' not defined")
-            
+            raise CompilerError(f"Instance '{node.instance_name}' not defined")
+
         instance_ptr = self.builder.load(scope[node.instance_name])
         class_name = getattr(scope[node.instance_name], 'sl_type', None)
         if not class_name:
-             for name, info in self.struct_registry.items():
-                 if node.property_name in info['properties']:
-                     class_name = name
-                     break
-        
-        prop_idx = self.struct_registry[class_name]['properties'][node.property_name]
+            raise CompilerError(
+                f"Cannot resolve type for '{node.instance_name}' when assigning "
+                f"property '{node.property_name}'. Attach type info via sl_type."
+            )
+
+        if class_name not in self.struct_registry:
+            raise CompilerError(f"Unknown struct type '{class_name}'")
+
+        props = self.struct_registry[class_name]['properties']
+        if node.property_name not in props:
+            raise CompilerError(
+                f"Struct '{class_name}' has no property '{node.property_name}'"
+            )
+
+        prop_idx = props[node.property_name]
         offset = ir.Constant(self.int_type, prop_idx)
         ptr = self.builder.gep(instance_ptr, [offset], name="propptr")
         ptr = self.builder.bitcast(ptr, self.int_type.as_pointer())
@@ -650,11 +687,10 @@ class LLVMCompiler:
             return buffer
 
         elif node.name == 'add':
-            if len(node.args) >= 2:
-                 val = self.visit(node.args[0])
-                 obj = self.visit(node.args[1])
-                 logger.info("Mapping 'add' to list operation")
-                 return ir.Constant(self.int_type, 0)
+            raise UnsupportedNodeError(
+                "Builtin 'add()' (list append) is not supported by the LLVM backend. "
+                "Use index assignment or a fixed-size array instead."
+            )
         
         if node.name in self.module.globals:
             func = self.module.globals[node.name]
@@ -814,51 +850,44 @@ class LLVMCompiler:
         elif node.method_name in self.module.globals:
             func = self.module.globals[node.method_name]
         else:
-            # Handle special list methods
-            if node.method_name in ('push', 'append', 'pop', 'len'):
-                 logger.info(f"List method {node.method_name} call detected")
-                 return ir.Constant(self.int_type, 0)
-            raise Exception(f"Method '{full_method_name}' not found")
+            raise CompilerError(
+                f"Method '{full_method_name}' not found. "
+                f"Note: list methods (push/append/pop/len) are not yet "
+                f"supported by the LLVM backend."
+            )
 
         args = [instance_ptr] + [self.visit(a) for a in node.args]
         return self.builder.call(func, args, name="methcall")
 
     def visit_Import(self, node: Import) -> Optional[ir.Value]:
+        # Handle the virtual "time" module.
         if node.path.strip('"\'') == "time":
+            scope = self.scopes[0]
+            if "time" not in scope:
+                if "time_mod_ptr" in self.module.globals:
+                    ptr = self.module.get_global("time_mod_ptr")
+                else:
+                    ptr = ir.GlobalVariable(self.module, self.char_ptr, name="time_mod_ptr")
+                    ptr.linkage = 'internal'
+                    ptr.initializer = ir.Constant(self.char_ptr, None)
+                ptr.sl_type = "time"
+                scope["time"] = ptr
             return
-            
-        import os
+
         resolved_path = self._resolve_path(node.path)
         base = os.path.basename(resolved_path)
         mod_name = base.replace(".", "_")
-        
+
         func_name = f"__init_{mod_name}"
         if func_name in self.module.globals:
-             init_func = self.module.get_global(func_name)
+            init_func = self.module.get_global(func_name)
         else:
-             init_func_type = ir.FunctionType(self.int_type, [])
-             init_func = ir.Function(self.module, init_func_type, name=func_name)
+            init_func_type = ir.FunctionType(self.int_type, [])
+            init_func = ir.Function(self.module, init_func_type, name=func_name)
         self.builder.call(init_func, [])
-        import os
-        resolved_path = self._resolve_path(node.path)
-
-        if node.path.strip('"\'') == "time":
-             # Define virtual time module
-             scope = self.scopes[0]
-             if "time" not in scope:
-                 if "time_mod_ptr" in self.module.globals:
-                     ptr = self.module.get_global("time_mod_ptr")
-                 else:
-                     ptr = ir.GlobalVariable(self.module, self.char_ptr, name="time_mod_ptr")
-                     ptr.linkage = 'internal'
-                     ptr.initializer = ir.Constant(self.char_ptr, None)
-                 ptr.sl_type = "time"
-                 scope["time"] = ptr
-             return
 
         if not os.path.exists(resolved_path):
-             raise CompilerError(f"Could not find import at '{resolved_path}'")
-             return
+            raise CompilerError(f"Could not find import at '{resolved_path}'")
              
         if resolved_path in self.imported_files:
             return
@@ -880,18 +909,15 @@ class LLVMCompiler:
         return ir.Constant(self.int_type, 0)
     def visit_Stop(self, node: Stop) -> Optional[ir.Value]:
         if not self.loop_stack:
-            logger.error("stop used outside of loop")
-            raise CompilerError("stop used outside of loop")
-            return
+            raise CompilerError("'stop' used outside of a loop")
         after_bb = self.loop_stack[-1][1]
         self.builder.branch(after_bb)
         dead_bb = self.builder.append_basic_block(name="dead")
         self.builder.position_at_end(dead_bb)
+
     def visit_Skip(self, node: Skip) -> Optional[ir.Value]:
         if not self.loop_stack:
-            logger.error("skip used outside of loop")
-            raise CompilerError("skip used outside of loop")
-            return
+            raise CompilerError("'skip' used outside of a loop")
         cond_bb = self.loop_stack[-1][0]
         self.builder.branch(cond_bb)
         dead_bb = self.builder.append_basic_block(name="dead")
@@ -994,7 +1020,13 @@ class LLVMCompiler:
         for stmt in node.always_body:
             self.visit(stmt)
     def visit_Print(self, node: Print) -> Optional[ir.Value]:
-        value = self.visit(node.expression)
+        expr = node.expression
+        if isinstance(expr, list):
+            if not expr: return ir.Constant(ir.IntType(1), 0)
+            value = self.visit(expr[0])
+        else:
+            value = self.visit(expr)
+            
         if value.type == self.char_ptr:
             fmt_str = self.bh.get_string_constant("%s\n")
             self.builder.call(self.printf, [fmt_str, value])
