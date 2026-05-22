@@ -4,7 +4,6 @@ from typing import Any, List, Optional
 from .ast_nodes import *
 from .lexer import Token
 
-
 @dataclass
 class GeoNode:
     line_num: int = 0
@@ -689,7 +688,6 @@ class Parser:
         if type(lhs_expr).__name__ == "IndexAccess":
             return IndexAssign(lhs_expr.obj, lhs_expr.index, value_expr)
         if type(lhs_expr).__name__ == "BinOp" and lhs_expr.op == ".":
-            # self.source -> BinOp(left=VarAccess(self), op='.', right=VarAccess(source))
             instance_name = lhs_expr.left.name if hasattr(lhs_expr.left, 'name') else str(lhs_expr.left)
             property_name = lhs_expr.right.name if hasattr(lhs_expr.right, 'name') else str(lhs_expr.right)
             return PropertyAssign(instance_name, property_name, value_expr)
@@ -784,7 +782,7 @@ class Parser:
                 continue
             if t.type == 'COLON':
                 break
-            if t.type == 'ID':
+            if t.type in ('ID', 'FOLDER', 'FILE'):
                 arg_name = t.value
                 # Check for `arg as type` pattern
                 if (i + 2 < len(token_slice)
@@ -1054,7 +1052,7 @@ class Parser:
         if i < len(tokens) and tokens[i].type == 'USING':
             i += 1
             while i < len(tokens):
-                if tokens[i].type == 'ID':
+                if tokens[i].type in ('ID', 'FOLDER', 'FILE'):
                     args.append((tokens[i].value, None, None))
                 elif tokens[i].type == 'COMMA':
                     pass
@@ -1363,6 +1361,21 @@ class Parser:
                         current_elem.append(tokens[j])
                     j += 1
                 
+                if depth > 0 and current_elem:
+                    # Split current_elem by commas if any
+                    last_split = []
+                    last_curr = []
+                    for t_last in current_elem:
+                        if t_last.type == 'COMMA':
+                            if last_curr:
+                                last_split.append(last_curr)
+                                last_curr = []
+                        else:
+                            last_curr.append(t_last)
+                    if last_curr:
+                        last_split.append(last_curr)
+                    elements_tokens.extend(last_split)
+                
                 if not has_comma and to_idx != -1 and len(elements_tokens) == 1:
                     elem = elements_tokens[0]
                     start_expr = self.parse_expr_iterative(elem[:to_idx], children)
@@ -1412,6 +1425,7 @@ class Parser:
                         paren_depth += 1
                     elif tokens[j].type == 'RPAREN':
                         paren_depth -= 1
+
                     if depth == 0:
                         if current_pair:
                             pairs_tokens.append(current_pair)
@@ -1422,6 +1436,9 @@ class Parser:
                     else:
                         current_pair.append(tokens[j])
                     j += 1
+                
+                if depth > 0 and current_pair:
+                    pairs_tokens.append(current_pair)
                 
                 pairs = []
                 for p_tokens in pairs_tokens:
@@ -1657,7 +1674,7 @@ class Parser:
                 values.append(FileRead(expr))
                 break
             elif t.type in (
-                'ID', 'ADD', 'REMOVE', 
+                'ID', 'ADD', 'REMOVE', 'FOLDER', 'FILE',
                 'CONVERT', 'LOAD', 'SAVE',
                 'SET', 'LIST', 'SIZE', 'INT', 'STR', 'LEN', 'KEYS',
                 'UPPER', 'LOWER', 'SORT',
