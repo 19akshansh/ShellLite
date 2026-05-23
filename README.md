@@ -61,7 +61,7 @@ shl compile script.shl --target wasm   # Build for WebAssembly
 
 For a deep dive into the underlying parsing theory, please refer to the papers on Zenodo:
 - [Geometric Binding: A Topological Approach to Indentation Sensitive Parsing](https://zenodo.org/records/18722827)
-- [ShellLite: Research Overview](https://zenodo.org/records/18228699)
+- [ShellLite: White paper](https://zenodo.org/records/18228699)
 
 Detailed language guides can be found in the `docs/` directory.
 
