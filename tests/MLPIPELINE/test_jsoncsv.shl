@@ -1,0 +1,10 @@
+fam = {
+    "contributor": "Akshansh",
+    "bbg": "shrey"
+}
+
+print(json_stringify(fam))
+
+# RUN: python -m shell_lite.main run tests/MLPIPELINE/test_jsoncsv.shl
+# If output is same as file content, yayayyyayayayayayayayayyayya
+#PASS

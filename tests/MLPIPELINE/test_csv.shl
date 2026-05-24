@@ -1,0 +1,16 @@
+rows = [
+  {
+    "contributor1": "shrey",
+    "status": "booooo"
+  },
+  {
+    "contributor2": "akshansh",
+    "status": "booooo"
+  }
+]
+
+save_csv(rows, "results.csv")
+
+# CSV is working, but the previous contributors have messed with interpreter
+# such that it does not interpret dictionaries as it should : ( 
+# this test will supposedly fail, until I work on it. 

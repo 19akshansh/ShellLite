@@ -16,7 +16,12 @@ from .ast_nodes import (
     Node,
     While,
 )
-from .interpreter import Interpreter
+from .interpreter import (
+    Interpreter,
+    serialize_runtime_value,
+    ShellLiteJSONEncoder,
+    std_csv_export,
+) # NEEDED SOME NEW IMPWOWRWTS HEHEHEHE
 from .lexer import Lexer
 from .parser import Parser
 
@@ -31,8 +36,12 @@ def execute_source(source: str, interpreter: Interpreter):
         tokens = lexer.tokenize()
         parser = Parser(tokens)
         statements = parser.parse()
+        result = None
+
         for stmt in statements:
-            interpreter.visit(stmt)
+            result = interpreter.visit(stmt)
+        return result # baka? oh you wanna capture flags, no?
+        
     except Exception as e:
         if hasattr(e, "line") and e.line > 0:
             print(f"\n[ShellLite Error] on line {e.line}:")
@@ -653,7 +662,28 @@ def main():
     """CLI entry point: parse command-line arguments and route to appropriate functions."""
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
-        safe_mode = "--safe" in sys.argv
+        safe_mode = "--safe" in sys.argv # UPDATED AS PAR TO NEW ML PIPELINE
+
+        output_format = None
+
+        # NEW FLAGS YAYAYYAYAY!! (ref: ML PIPELINE INTERPRETER.)
+
+        if "--fmt" in sys.argv:
+            try:
+                idx = sys.argv.index("--fmt")
+                output_format = sys.argv[idx + 1]
+            except IndexError:
+                print("Error: --fmt requires json or csv")
+                return
+
+        elif "--output-format" in sys.argv:
+            try:
+                idx = sys.argv.index("--output-format")
+                output_format = sys.argv[idx + 1]
+            except IndexError:
+                print("Error: --output-format requires json or csv")
+                return
+
         if safe_mode:
             os.environ["SHL_SAFE"] = "1"
             sys.argv.remove("--safe")
@@ -753,7 +783,32 @@ def main():
                     source = f.read()
                 interpreter = Interpreter()
                 interpreter.safe_mode = safe_mode
-                execute_source(source, interpreter)
+                result = execute_source(source, interpreter)
+
+                # FILESSSSSS
+                if output_format == "json":
+                    print(
+                        json.dumps(
+                            serialize_runtime_value(result),
+                            indent=2,
+                            cls=ShellLiteJSONEncoder,
+                            ensure_ascii=False,
+                        )
+                    ) # EWWWWWWWWWWWWWWWWWWWWWWWWW
+
+                elif output_format == "csv": # CODE AUTHOR LOVES CSV
+                    import tempfile
+                
+                    temp_path = tempfile.NamedTemporaryFile(
+                        delete=False,
+                        suffix=".csv",
+                    ).name
+                
+                    std_csv_export(result, temp_path)
+                
+                    with open(temp_path, "r", encoding="utf-8") as f:
+                        print(f.read())
+
             else:
                 print("Usage: shl run <filename>")
         else:
