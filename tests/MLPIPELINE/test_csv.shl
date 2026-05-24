@@ -9,8 +9,6 @@ rows = [
   }
 ]
 
-save_csv(rows, "results.csv")
+save_csv(rows, "tests/MLPIPELINE/results/results.csv")
 
-# CSV is working, but the previous contributors have messed with interpreter
-# such that it does not interpret dictionaries as it should : ( 
-# this test will supposedly fail, until I work on it. 
+# UPDATE: works!
