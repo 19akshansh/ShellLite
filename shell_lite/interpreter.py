@@ -387,28 +387,27 @@ def std_csv_export(data, path):
 
             headers = list(headers)
 
-            writer = csv.DictWriter(
+            dict_writer = csv.DictWriter(
                 f,
                 fieldnames=headers,
                 quoting=csv.QUOTE_MINIMAL,
             )
 
-            writer.writeheader()
+            dict_writer.writeheader()
 
             for row in data:
                 serialized_row = {k: serialize_runtime_value(v) for k, v in row.items()}
 
-                writer.writerow(serialized_row)
+                dict_writer.writerow(serialized_row)
 
         elif mode == "list_rows":
-            writer = csv.writer(
+            list_writer = csv.writer(
                 f,
                 quoting=csv.QUOTE_MINIMAL,
             )
 
             for row in data:
-                writer.writerow([serialize_runtime_value(v) for v in row])
-
+                list_writer.writerow([serialize_runtime_value(v) for v in row])
     return path
 
 

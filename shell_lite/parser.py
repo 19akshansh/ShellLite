@@ -1501,23 +1501,13 @@ class Parser:
 
                 depth = 1
                 j = i + 1
-                elements_tokens: List[List[Token]] = []
-                current_elem: List[Token] = []
                 has_comma = False
                 to_idx = -1
-                depth = 1
-
-                # fix to parse dictionary syntax properly
                 brace_depth = 0
                 paren_depth = 0
 
-                j = i + 1
-
                 elements_tokens: List[List[Token]] = []
                 current_elem: List[Token] = []
-
-                has_comma = False
-                to_idx = -1
 
                 while j < len(tokens):
                     tok = tokens[j]
@@ -1526,12 +1516,10 @@ class Parser:
                         depth += 1
                     elif tok.type == "RBRACKET":
                         depth -= 1
-
                     elif tok.type == "LBRACE":
                         brace_depth += 1
                     elif tok.type == "RBRACE":
                         brace_depth -= 1
-
                     elif tok.type == "LPAREN":
                         paren_depth += 1
                     elif tok.type == "RPAREN":
@@ -1549,7 +1537,6 @@ class Parser:
                     else:
                         if tok.type == "TO" and depth == 1 and brace_depth == 0 and paren_depth == 0:
                             to_idx = len(current_elem)
-
                         current_elem.append(tok)
 
                     j += 1
