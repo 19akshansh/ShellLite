@@ -41,3 +41,6 @@ error.txt
 
 # Temporary test files
 tests/temp_*.shl
+
+# venv
+venv/
