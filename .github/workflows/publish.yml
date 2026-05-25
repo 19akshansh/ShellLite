@@ -11,14 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      id-token: write      # Required for PyPI Trusted Publishing
-      contents: write      # Required to push the version bump back to the repository
+      id-token: write
+      contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: main        # Checkout main so we can commit the version bump back to it
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,13 +47,9 @@ jobs:
           main_path = 'shell_lite/main.py'
           if os.path.exists(main_path):
               with open(main_path, 'r') as f: data = f.read()
-              # Matches v0.6.1.2
               data = re.sub(r'v\d+\.\d+\.\d+(\.\d+)?', f'v{version}', data)
-              # Matches (0.6.1.2)
               data = re.sub(r'\(\d+\.\d+\.\d+(\.\d+)?\)', f'({version})', data)
-              # Matches for 0.6.1.2
               data = re.sub(r'for \d+\.\d+\.\d+(\.\d+)?', f'for {version}', data)
-              # Matches ShellLite 0.6.1.2
               data = re.sub(r'ShellLite \d+\.\d+\.\d+(\.\d+)?', f'ShellLite {version}', data)
               with open(main_path, 'w') as f: f.write(data)
 
