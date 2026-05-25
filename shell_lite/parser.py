@@ -1529,27 +1529,44 @@ class Parser:
 
                 depth = 1
                 j = i + 1
-                elements_tokens: List[List[Token]] = []
-                current_elem: List[Token] = []
                 has_comma = False
                 to_idx = -1
+                brace_depth = 0
+                paren_depth = 0
+
+                elements_tokens: List[List[Token]] = []
+                current_elem: List[Token] = []
+
                 while j < len(tokens):
-                    if tokens[j].type == "LBRACKET":
+                    tok = tokens[j]
+
+                    if tok.type == "LBRACKET":
                         depth += 1
-                    elif tokens[j].type == "RBRACKET":
+                    elif tok.type == "RBRACKET":
                         depth -= 1
+                    elif tok.type == "LBRACE":
+                        brace_depth += 1
+                    elif tok.type == "RBRACE":
+                        brace_depth -= 1
+                    elif tok.type == "LPAREN":
+                        paren_depth += 1
+                    elif tok.type == "RPAREN":
+                        paren_depth -= 1
+
                     if depth == 0:
                         if current_elem:
                             elements_tokens.append(current_elem)
                         break
-                    if tokens[j].type == "COMMA" and depth == 1:
+
+                    if tok.type == "COMMA" and depth == 1 and brace_depth == 0 and paren_depth == 0:
                         elements_tokens.append(current_elem)
                         current_elem = []
                         has_comma = True
                     else:
-                        if tokens[j].type == "TO" and depth == 1:
+                        if tok.type == "TO" and depth == 1 and brace_depth == 0 and paren_depth == 0:
                             to_idx = len(current_elem)
-                        current_elem.append(tokens[j])
+                        current_elem.append(tok)
+
                     j += 1
 
                 if depth > 0 and current_elem:
