@@ -81,7 +81,7 @@ def run_repl():
     interpreter = Interpreter()
     print("\n" + "=" * 40)
     print("=" * 40)
-    print("Version: v0.6.1.2")
+    print("Version: v0.6.2")
     print("Commands: Type 'exit' to quit, 'help' for examples.")
     print("Note: Terminal commands (like 'shl install') must be run outside the REPL.")
     try:
@@ -213,7 +213,7 @@ def install_globally():
                     with open(rc, "a", encoding="utf-8") as f:
                         f.write(f"\n# Added by ShellLite Installer\n{export_line}\n")
 
-        print("\n[SUCCESS] ShellLite (v0.6.1.2) is installed!")
+        print("\n[SUCCESS] ShellLite (v0.6.2) is installed!")
         print(f"Location: {install_dir}")
         print("\nIMPORTANT STEP REQUIRED:")
         print("1. Close ALL open terminal windows.")
@@ -469,7 +469,7 @@ def compile_file(filename: str, target: str = "llvm"):
             return
 
         if target.lower() == "js":
-            print("Notice: The JS target is being rebuilt for v0.6.1.2 and is temporarily unavailable.")
+            print("Notice: The JS target is being rebuilt for v0.6.2 and is temporarily unavailable.")
             return
         elif target.lower() == "llvm":
             try:
@@ -481,10 +481,10 @@ def compile_file(filename: str, target: str = "llvm"):
                 print("Error: 'llvmlite' is required for LLVM compilation.")
                 return
         elif target.lower() == "wasm":
-            print("Notice: The WASM target is being rebuilt for v0.6.1.2 and is temporarily unavailable.")
+            print("Notice: The WASM target is being rebuilt for v0.6.2 and is temporarily unavailable.")
             return
         elif target.lower() == "c":
-            print("Notice: The C target is being rebuilt for v0.6.1.2 and is temporarily unavailable.")
+            print("Notice: The C target is being rebuilt for v0.6.2 and is temporarily unavailable.")
             return
         else:
             from .compiler import Compiler
@@ -615,7 +615,7 @@ def format_file(filename: str):
     if not os.path.exists(filename):
         print(f"Error: File '{filename}' not found.")
         return
-    print("Notice: The formatting feature is being rebuilt for v0.6.1.2 and is temporarily unavailable.")
+    print("Notice: The formatting feature is being rebuilt for v0.6.2 and is temporarily unavailable.")
     return
 
 
@@ -716,7 +716,7 @@ def main():
         elif cmd == "help" or cmd == "--help" or cmd == "-h":
             show_help()
         elif cmd == "--version" or cmd == "-v":
-            print("ShellLite v0.6.1.2")
+            print("ShellLite v0.6.2")
         elif cmd == "get":
             if len(sys.argv) > 2:
                 package_name = sys.argv[2]
