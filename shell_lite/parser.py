@@ -88,6 +88,8 @@ class Parser:
     root_nodes: List[GeoNode]
 
     def __init__(self, source_or_tokens: Any = None, tokens: Optional[List[Token]] = None):
+        self.loop_depth = 0
+
         if isinstance(source_or_tokens, str):
             self.source_code = source_or_tokens
             self.legacy_tokens = tokens
@@ -112,11 +114,6 @@ class Parser:
             "IS": 5,
             "IN": 5,
             "NOTIN": 5,
-            "BIT_OR": 5.2,
-            "BIT_XOR": 5.4,
-            "BIT_AND": 5.6,
-            "LSHIFT": 5.8,
-            "RSHIFT": 5.8,
             "PLUS": 6,
             "MINUS": 6,
             "MUL": 7,
@@ -590,7 +587,14 @@ class Parser:
         condition = self.parse_expr_iterative(expr_tokens)
         if condition is None:
             raise SyntaxError(f"Missing condition for 'while' statement at line {node.line}")
-        body = self.bind_statement_list(node.children)
+        
+        self.loop_depth += 1
+
+        try:
+            body = self.bind_statement_list(node.children)
+        finally:
+            self.loop_depth -= 1
+
         return While(condition, body)
 
     def bind_repeat(self, node: GeoNode) -> Node:
@@ -600,11 +604,24 @@ class Parser:
         count = self.parse_expr_iterative(expr_tokens)
         if count is None:
             raise SyntaxError(f"Missing count for 'repeat' statement at line {node.line}")
-        body = self.bind_statement_list(node.children)
+        
+        self.loop_depth += 1
+
+        try:
+            body = self.bind_statement_list(node.children)
+        finally:
+            self.loop_depth -= 1
+
         return Repeat(count, body)
 
     def bind_forever(self, node: GeoNode) -> Node:
-        body = self.bind_statement_list(node.children)
+        self.loop_depth += 1
+
+        try:
+            body = self.bind_statement_list(node.children)
+        finally:
+            self.loop_depth -= 1
+
         return While(Boolean(True), body)
 
     def bind_for(self, node: GeoNode) -> Optional[Node]:
@@ -631,10 +648,20 @@ class Parser:
                     count = self.parse_expr_iterative(e_tokens)
                     if count is None:
                         raise SyntaxError(f"Missing count for 'loop' statement at line {node.line}")
-                    body = self.bind_statement_list(node.children)
+                    self.loop_depth += 1
+
+                    try:
+                        body = self.bind_statement_list(node.children)
+                    finally:
+                        self.loop_depth -= 1
+
                     return Repeat(count, body)
             return None
-        body = self.bind_statement_list(node.children)
+        self.loop_depth += 1
+        try:
+            body = self.bind_statement_list(node.children)
+        finally:
+            self.loop_depth -= 1
         if node.tokens[in_idx + 1].type == "RANGE":
             args_tokens = self._extract_expr_tokens(node.tokens, in_idx + 2)
             filtered = [t for t in args_tokens if t.type not in ("LPAREN", "RPAREN", "COMMA")]
@@ -999,9 +1026,13 @@ class Parser:
         return Exit(code)
 
     def bind_stop(self, node: GeoNode) -> Stop:
+        if self.loop_depth <= 0:
+            raise SyntaxError(f"'Stop' statement used outside a Loop at line {node.line}")
         return Stop()
 
     def bind_skip(self, node: GeoNode) -> Skip:
+        if self.loop_depth <= 0:
+            raise SyntaxError(f"'Skip' statement used outside a Loop at line {node.line}")
         return Skip()
 
     def bind_spawn(self, node: GeoNode) -> Spawn:
@@ -1371,7 +1402,6 @@ class Parser:
             "MUL": 20,
             "DIV": 20,
             "MOD": 20,
-            "POW": 25,
             "GT": 5,
             "LT": 5,
             "EQ": 4,
@@ -1383,13 +1413,7 @@ class Parser:
             "CONTAINS": 5,
             "DOT": 30,
             "NOT": 15,
-            "BIT_NOT": 15,
             "LBRACKET": 30,
-            "BIT_OR": 6,
-            "BIT_XOR": 7,
-            "BIT_AND": 8,
-            "LSHIFT": 9,
-            "RSHIFT": 9,
         }
 
         def apply_op():
@@ -1397,11 +1421,11 @@ class Parser:
             if not ops:
                 return
             op_type = ops.pop()
-            unary_ops = ("NOT", "MINUS_UNARY", "BIT_NOT")
+            unary_ops = ("NOT", "MINUS_UNARY")
             if op_type in unary_ops:
                 if len(values) >= 1:
                     right = values.pop()
-                    op_str = "not" if op_type == "NOT" else ("-" if op_type == "MINUS_UNARY" else "~")
+                    op_str = "not" if op_type == "NOT" else "-"
                     values.append(UnaryOp(op_str, right))
                 else:
                     raise SyntaxError(f"Invalid expression: missing operand for unary {op_type}")
@@ -1426,12 +1450,6 @@ class Parser:
                     "IN": "in",
                     "NOTIN": "not in",
                     "DOT": ".",
-                    "POW": "**",
-                    "BIT_AND": "&",
-                    "BIT_OR": "|",
-                    "BIT_XOR": "^",
-                    "LSHIFT": "<<",
-                    "RSHIFT": ">>",
                 }
                 op_str = op_map.get(op_type, op_type)
                 values.append(BinOp(left, op_str, right))
@@ -1477,12 +1495,6 @@ class Parser:
                     "NEQ",
                     "AND",
                     "OR",
-                    "POW",
-                    "BIT_AND",
-                    "BIT_OR",
-                    "BIT_XOR",
-                    "LSHIFT",
-                    "RSHIFT",
                 )
                 if is_unary:
                     values.append(Number(0))
@@ -1491,10 +1503,6 @@ class Parser:
                     continue
             if t.type == "NOT":
                 ops.append("NOT")
-                i += 1
-                continue
-            if t.type == "BIT_NOT":
-                ops.append("BIT_NOT")
                 i += 1
                 continue
             if t.type == "NUMBER":
@@ -1529,44 +1537,27 @@ class Parser:
 
                 depth = 1
                 j = i + 1
-                has_comma = False
-                to_idx = -1
-                brace_depth = 0
-                paren_depth = 0
-
                 elements_tokens: List[List[Token]] = []
                 current_elem: List[Token] = []
-
+                has_comma = False
+                to_idx = -1
                 while j < len(tokens):
-                    tok = tokens[j]
-
-                    if tok.type == "LBRACKET":
+                    if tokens[j].type == "LBRACKET":
                         depth += 1
-                    elif tok.type == "RBRACKET":
+                    elif tokens[j].type == "RBRACKET":
                         depth -= 1
-                    elif tok.type == "LBRACE":
-                        brace_depth += 1
-                    elif tok.type == "RBRACE":
-                        brace_depth -= 1
-                    elif tok.type == "LPAREN":
-                        paren_depth += 1
-                    elif tok.type == "RPAREN":
-                        paren_depth -= 1
-
                     if depth == 0:
                         if current_elem:
                             elements_tokens.append(current_elem)
                         break
-
-                    if tok.type == "COMMA" and depth == 1 and brace_depth == 0 and paren_depth == 0:
+                    if tokens[j].type == "COMMA" and depth == 1:
                         elements_tokens.append(current_elem)
                         current_elem = []
                         has_comma = True
                     else:
-                        if tok.type == "TO" and depth == 1 and brace_depth == 0 and paren_depth == 0:
+                        if tokens[j].type == "TO" and depth == 1:
                             to_idx = len(current_elem)
-                        current_elem.append(tok)
-
+                        current_elem.append(tokens[j])
                     j += 1
 
                 if depth > 0 and current_elem:
@@ -1834,14 +1825,7 @@ class Parser:
                 if ops:
                     ops.pop()
             elif t.type in self.precedence:
-                while (
-                    ops
-                    and ops[-1] != "LPAREN"
-                    and (
-                        get_precedence(ops[-1]) > get_precedence(t.type)
-                        or (get_precedence(ops[-1]) == get_precedence(t.type) and t.type != "POW")
-                    )
-                ):
+                while ops and ops[-1] != "LPAREN" and get_precedence(ops[-1]) >= get_precedence(t.type):
                     apply_op()
                 ops.append(t.type)
             i += 1

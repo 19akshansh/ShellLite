@@ -6,6 +6,8 @@ import os
 import sys
 import unittest
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from shell_lite.interpreter import Interpreter
@@ -15,7 +17,7 @@ from shell_lite.parser import Parser
 
 class TestInterpreter(unittest.TestCase):
     """
-    Test suite for ShellLite Interpreter evaluation and logic.
+    Test suite for ShellLite Interpreter evaluation and logic. 
     """
 
     def run_code(self, code: str):
@@ -88,6 +90,60 @@ val = arr[0]"""
         env, _, _ = self.run_code(code)
         self.assertEqual(env.get("arr"), [1, 2, 3])
         self.assertEqual(env.get("val"), 1)
+
+    # Adding more tests for Issue: https://github.com/ShellLite/ShellLite/issues/20
+    # Line 96 -> 145
+
+    def test_stop_inside_while(self):
+        source = """x = 0
+while x < 10:
+    x = x + 1
+    if x == 5:
+        stop
+"""
+
+        interp, _, _ = self.run_code(source)
+        self.assertEqual(interp.get("x"), 5)
+
+    def test_skip_inside_loop(self):
+        source = """x = 0
+y = 0
+while x < 5:
+    x = x + 1
+    if x == 3:
+        skip
+    y = y + 1
+"""
+
+        interp, _, _ = self.run_code(source)
+        self.assertEqual(interp.get("y"), 4)
+
+    def test_stop_outside_loop(self):
+        source = """stop
+"""
+
+        with pytest.raises(SyntaxError):
+            self.run_code(source)
+
+    def test_skip_outside_loop(self):
+        source = """skip
+"""
+
+        with pytest.raises(SyntaxError):
+            self.run_code(source)
+
+    def test_nested_stop(self):
+        source = """x = 0
+repeat 3 times:
+    y = 0
+    while true:
+        y = y + 1
+        stop
+    x = x + 1
+"""
+
+        interp, _, _ = self.run_code(source)
+        self.assertEqual(interp.get("x"), 3)
 
 
 if __name__ == "__main__":
